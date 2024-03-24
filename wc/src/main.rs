@@ -31,6 +31,8 @@ fn main() {
             let mut lines = 0;
             let mut buf = String::new();
             let mut reader = BufReader::new(file);
+
+            // TODO: optimize for memory. What if file contains single line gigabytes long?
             while reader.read_line(&mut buf).unwrap() != 0 {
                 lines += 1;
                 buf.clear();
@@ -43,9 +45,9 @@ fn main() {
             let mut buf = String::new();
             let mut reader = BufReader::new(file);
 
+            // TODO: optimize for memory. What if file contains single line gigabytes long?
             while reader.read_line(&mut buf).unwrap() != 0 {
                 words += buf.split_whitespace().count();
-
                 buf.clear();
             }
 
