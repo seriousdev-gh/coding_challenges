@@ -1,4 +1,5 @@
-use std::{env, fs::File, io::{BufRead, BufReader}, process::exit};
+use std::{env, fs::File, io::{BufRead, BufReader, Read}, process::exit};
+use utf8_chars::BufReadCharsExt;
 
 fn main() {
     let mut path = String::from("");
@@ -49,6 +50,13 @@ fn main() {
             }
 
             println!("{words} {path}");
+        }
+        "-m" => {
+            let mut reader = BufReader::new(file);
+
+            let chars = reader.chars().count();
+
+            println!("{chars} {path}");
         }
         _ => {
             eprintln!("Unsupported arguments: {command} {path}");

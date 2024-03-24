@@ -29,3 +29,13 @@ fn count_file_words() {
         .assert()
         .stdout("58164 resources/test.txt\n");
 }
+
+#[test]
+fn count_file_chars() {
+    let mut cmd = Command::cargo_bin("wc").unwrap();
+    cmd
+        .arg("-m")
+        .arg("resources/test.txt")
+        .assert()
+        .stdout("339292 resources/test.txt\n");
+}
