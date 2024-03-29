@@ -39,3 +39,12 @@ fn count_file_chars() {
         .assert()
         .stdout("339292 resources/test.txt\n");
 }
+
+#[test]
+fn count_file_stats_wihtout_arguments() {
+    let mut cmd = Command::cargo_bin("wc").unwrap();
+    cmd
+        .arg("resources/test.txt")
+        .assert()
+        .stdout("7145 58164 342190 resources/test.txt\n");
+}
