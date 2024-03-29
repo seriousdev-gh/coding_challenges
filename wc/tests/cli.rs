@@ -1,3 +1,5 @@
+use std::{fs::File, io::Read};
+
 use assert_cmd::Command;
 
 #[test]
@@ -47,4 +49,21 @@ fn count_file_stats_wihtout_arguments() {
         .arg("resources/test.txt")
         .assert()
         .stdout("7145 58164 342190 resources/test.txt\n");
+}
+
+#[test]
+fn count_input_lines() {
+    let mut cmd = Command::cargo_bin("wc").unwrap();
+    let mut input = String::new();
+
+    let path = "resources/test.txt";
+    let mut file = File::open(path).expect("Could not read file: {path}");
+
+    file.read_to_string(&mut input).expect("Could not read to string");
+
+    cmd
+        .arg("-l")
+        .write_stdin(input)
+        .assert()
+        .stdout("7145 \n");
 }
