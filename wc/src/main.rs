@@ -1,5 +1,11 @@
 use std::{env, fs::File, io::{self, BufRead, BufReader}, process::exit};
 
+struct Stats {
+    bytes: u64,
+    words: u64,
+    lines: u64,
+    chars: u64,
+}
 
 fn print_usage() {
     println!("Usage: wc [options] <file>");
@@ -26,32 +32,62 @@ fn main() {
 
     match command.as_str() {
         "-c" => {
-            let bytes = file_byte_count(&mut create_reader(&file_path));
-            println!("{bytes} {file_path}");
+            let stats = collect_stats(&mut create_reader(&file_path));
+            println!("{bytes} {file_path}", bytes = stats.bytes);
         }
         "-l" => {
-            let lines = file_line_count(&mut create_reader(&file_path));
-            println!("{lines} {file_path}");
+            let stats = collect_stats(&mut create_reader(&file_path));
+            println!("{lines} {file_path}", lines = stats.lines);
         }
         "-w" => {
-            let words = file_word_count(&mut create_reader(&file_path));
-            println!("{words} {file_path}");
+            let stats = collect_stats(&mut create_reader(&file_path));
+            println!("{words} {file_path}", words = stats.words);
         }
         "-m" => {
-            let chars = file_character_count(&mut create_reader(&file_path));
-            println!("{chars} {file_path}");
+            let stats = collect_stats(&mut create_reader(&file_path));
+            println!("{chars} {file_path}", chars = stats.chars);
         }
         "" => {
-            let bytes = file_byte_count(&mut create_reader(&file_path));
-            let lines = file_line_count(&mut create_reader(&file_path));
-            let words = file_word_count(&mut create_reader(&file_path));
-            println!("{lines} {words} {bytes} {file_path}");
+            let stats = collect_stats(&mut create_reader(&file_path));
+            println!("{lines} {words} {bytes} {file_path}", lines = stats.lines, words = stats.words, bytes = stats.bytes);
         }
         _ => {
             eprintln!("Unsupported arguments: {command} {file_path}");
             print_usage();
         }
     }
+}
+
+fn collect_stats(reader: &mut Box<dyn BufRead>) -> Stats {
+    let mut stats = Stats { bytes: 0, words: 0, lines: 0, chars: 0 };
+    let mut previos_byte_is_whitespace = true;
+
+    use utf8_chars::BufReadCharsExt;
+    for byte_result in reader.chars() {
+        if let Ok(char) = byte_result {
+            let current_byte_is_whitespace = char.is_whitespace() && char != '\u{2028}';
+            if !previos_byte_is_whitespace && current_byte_is_whitespace {
+                stats.words += 1;
+            }
+
+            if char == '\n' {
+                stats.lines += 1;
+            }
+
+            stats.chars += 1;
+            stats.bytes += char.len_utf8() as u64;
+
+            previos_byte_is_whitespace = current_byte_is_whitespace;
+        } else {
+            eprintln!("Invalid char: {:?}", byte_result);
+        }
+    }
+
+    if !previos_byte_is_whitespace {
+        stats.words += 1;
+    }
+
+    stats
 }
 
 fn create_reader(file_path: &String) -> Box<dyn BufRead> {
@@ -61,38 +97,4 @@ fn create_reader(file_path: &String) -> Box<dyn BufRead> {
         let file = File::open(file_path.clone()).expect("Could not open file: {file_path}");
         Box::new(BufReader::new(file))
     }
-}
-
-fn file_character_count(reader: &mut Box<dyn BufRead>) -> usize {
-    use utf8_chars::BufReadCharsExt;
-    reader.chars().count()
-}
-
-fn file_line_count(reader: &mut Box<dyn BufRead>) -> usize {
-    let mut lines = 0;
-    let mut buf = String::new();
-
-    // TODO: optimize for memory. What if file contains single line gigabytes long?
-    while reader.read_line(&mut buf).unwrap() != 0 {
-        lines += 1;
-        buf.clear();
-    }
-    lines
-}
-
-fn file_word_count(reader: &mut Box<dyn BufRead>) -> usize {
-    let mut words = 0;
-    let mut buf = String::new();
-
-    // TODO: optimize for memory. What if file contains single line gigabytes long?
-    while reader.read_line(&mut buf).unwrap() != 0 {
-        words += buf.split_whitespace().count();
-        buf.clear();
-    }
-    words
-}
-
-fn file_byte_count(reader: &mut Box<dyn BufRead>) -> usize {
-    use std::io::Read;
-    reader.bytes().count()
 }
