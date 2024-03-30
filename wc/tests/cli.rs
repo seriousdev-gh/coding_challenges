@@ -65,7 +65,7 @@ fn count_input_lines() {
         .arg("-l")
         .write_stdin(input)
         .assert()
-        .stdout("7145 \n");
+        .stdout("7145\n");
 }
 
 #[test]
@@ -81,5 +81,5 @@ fn count_input_stats_without_arguments() {
     cmd
         .write_stdin(input)
         .assert()
-        .stdout("7145 58164 342190 \n");
+        .stdout("7145 58164 342190\n");
 }

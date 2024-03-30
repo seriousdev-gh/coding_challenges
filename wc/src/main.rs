@@ -7,7 +7,7 @@ struct Stats {
     chars: u64,
 }
 
-fn print_usage() {
+fn print_usage_and_exit() {
     println!("Usage: wc [options] <file>");
     println!("With no options specifies prints lines, words and bytes count");
     println!("  -c  count bytes");
@@ -20,42 +20,47 @@ fn print_usage() {
 
 fn main() {
     let mut file_path = String::from("");
-    let mut command = String::from("");
+    let mut commands: Vec<String> = Vec::new();
 
     for arg in env::args().skip(1) {
-        if arg.starts_with("-") {
-            command = arg;
+        if arg == "-c" || arg == "-l" || arg == "-w" || arg == "-m" {
+            commands.push(arg);
+        } else if arg.starts_with("-") {
+            eprintln!("Unknown option: {arg}");
+            print_usage_and_exit();
         } else {
+            if file_path != "" {
+                eprintln!("Multiple file paths is not supported (already provided path: {file_path}).");
+                print_usage_and_exit();
+            }
             file_path = arg;
         }
     }
 
-    match command.as_str() {
-        "-c" => {
-            let stats = collect_stats(&mut create_reader(&file_path));
-            println!("{bytes} {file_path}", bytes = stats.bytes);
-        }
-        "-l" => {
-            let stats = collect_stats(&mut create_reader(&file_path));
-            println!("{lines} {file_path}", lines = stats.lines);
-        }
-        "-w" => {
-            let stats = collect_stats(&mut create_reader(&file_path));
-            println!("{words} {file_path}", words = stats.words);
-        }
-        "-m" => {
-            let stats = collect_stats(&mut create_reader(&file_path));
-            println!("{chars} {file_path}", chars = stats.chars);
-        }
-        "" => {
-            let stats = collect_stats(&mut create_reader(&file_path));
-            println!("{lines} {words} {bytes} {file_path}", lines = stats.lines, words = stats.words, bytes = stats.bytes);
-        }
-        _ => {
-            eprintln!("Unsupported arguments: {command} {file_path}");
-            print_usage();
-        }
+    let stats = collect_stats(&mut create_reader(&file_path));
+    let mut result: Vec<String> = Vec::new();
+
+    if commands.contains(&"-l".to_string()) || commands.is_empty() {
+        result.push(stats.lines.to_string());
     }
+
+    if commands.contains(&"-w".to_string()) || commands.is_empty() {
+        result.push(stats.words.to_string());
+    }
+
+    if commands.contains(&"-c".to_string()) || commands.is_empty() {
+        result.push(stats.bytes.to_string());
+    }
+
+    if commands.contains(&"-m".to_string()) {
+        result.push(stats.chars.to_string());
+    }
+
+    if file_path != "" {
+        result.push(file_path);
+    }
+
+    println!("{}", result.join(" "));
 }
 
 fn collect_stats(reader: &mut Box<dyn BufRead>) -> Stats {
@@ -65,7 +70,7 @@ fn collect_stats(reader: &mut Box<dyn BufRead>) -> Stats {
     use utf8_chars::BufReadCharsExt;
     for byte_result in reader.chars() {
         if let Ok(char) = byte_result {
-            let current_byte_is_whitespace = char.is_whitespace() && char != '\u{2028}';
+            let current_byte_is_whitespace = char.is_whitespace();
             if !previos_byte_is_whitespace && current_byte_is_whitespace {
                 stats.words += 1;
             }
