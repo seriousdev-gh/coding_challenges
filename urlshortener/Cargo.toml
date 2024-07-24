@@ -1,0 +1,16 @@
+[package]
+name = "urlshortener"
+version = "0.1.0"
+edition = "2021"
+default-run = "urlshortener"
+
+[dependencies]
+axum = "0.7.5"
+dotenv = "0.15.0"
+rand = "0.8.5"
+sea-orm = { version = "0.12.15", features = ["sqlx-mysql", "runtime-tokio-native-tls", "macros"] }
+sea-orm-migration = "0.12.15"
+serde = { version = "1.0.204", features = ["derive"] }
+tokio = { version = "1.39.1", features = ["macros", "rt-multi-thread"] }
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
