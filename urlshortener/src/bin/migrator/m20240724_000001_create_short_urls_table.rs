@@ -18,6 +18,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(ShortUrls::Id).big_integer().not_null().auto_increment().primary_key())
                     .col(ColumnDef::new(ShortUrls::Key).string().not_null().unique_key())
                     .col(ColumnDef::new(ShortUrls::LongUrl).string().not_null())
+                    .col(ColumnDef::new(ShortUrls::CreatedAt).timestamp().default(SimpleExpr::Keyword(Keyword::CurrentTimestamp)).not_null())
                     .to_owned(),
             )
             .await
@@ -35,5 +36,6 @@ pub enum ShortUrls {
     Table,
     Id,
     Key,
-    LongUrl
+    LongUrl,
+    CreatedAt
 }
