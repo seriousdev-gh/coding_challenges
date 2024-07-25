@@ -1,20 +1,21 @@
-use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use crate::{short_urls, ShortUrls};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 
 // returns generated key
-pub async fn call(long_url: String, conn: &DatabaseConnection) -> String {
+pub async fn call(long_url: String, conn: &DatabaseConnection) -> Result<String, DbErr> {
 
     let key = generate_key(&long_url);
 
     let existing_record = ShortUrls::find()
         .filter(short_urls::Column::Key.eq(&key))
         .one(conn)
-        .await;
+        .await?;
 
-    if existing_record.is_ok() {
-        return key;
+    if existing_record.is_some() {
+        // TODO: add check for hash collision, in that case try to generate different hash
+        return Ok(key);
     }
 
     let url_record = short_urls::ActiveModel {
@@ -23,9 +24,9 @@ pub async fn call(long_url: String, conn: &DatabaseConnection) -> String {
         ..Default::default()
     };
 
-    ShortUrls::insert(url_record).exec(conn).await.unwrap();
+    ShortUrls::insert(url_record).exec(conn).await?;
 
-    key
+    Ok(key)
 }
 
 fn generate_key(url: &str) -> String {
