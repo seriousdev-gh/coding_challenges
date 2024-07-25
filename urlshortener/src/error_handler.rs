@@ -12,13 +12,13 @@ pub enum AppError {
     DatabaseError(sea_orm::DbErr),
 }
 
+#[derive(Serialize)]
+pub struct ErrorResponse {
+    pub message: String,
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        #[derive(Serialize)]
-        struct ErrorResponse {
-            message: String,
-        }
-
         let (status, message) = match self {
             AppError::JsonRejection(rejection) => (rejection.status(), rejection.body_text()),
             AppError::DatabaseError(err) => {

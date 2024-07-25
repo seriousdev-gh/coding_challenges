@@ -11,7 +11,10 @@ use tower::{Layer, ServiceBuilder};
 use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, OnRequest, TraceLayer};
 use tracing::Level;
 
-use crate::{error_handler::AppError, services, AppState};
+use crate::{
+    error_handler::{AppError, ErrorResponse},
+    services, AppState,
+};
 use services::delete_short_url::DeleteResult;
 
 pub(crate) fn create_router(state: AppState) -> Router {
@@ -35,7 +38,7 @@ async fn create_short_url(
         let response = (
             StatusCode::BAD_REQUEST,
             AppJson(ErrorResponse {
-                error: "Provide url".to_string(),
+                message: "Provide url".to_string(),
             }),
         );
         return Ok(response.into_response());
@@ -67,11 +70,6 @@ struct CreateShortUrlResponse {
     short_url: String,
 }
 
-#[derive(Serialize)]
-struct ErrorResponse {
-    error: String,
-}
-
 async fn redirect_to_long_url(
     state: State<AppState>,
     Path(key): Path<String>,
@@ -83,7 +81,7 @@ async fn redirect_to_long_url(
         (
             StatusCode::NOT_FOUND,
             AppJson(ErrorResponse {
-                error: "Key not found".to_string(),
+                message: "Key not found".to_string(),
             }),
         )
             .into_response()
@@ -102,7 +100,7 @@ async fn delete_short_url(
         DeleteResult::NotFound => (
             StatusCode::NOT_FOUND,
             AppJson(ErrorResponse {
-                error: "Key not found".to_string(),
+                message: "Key not found".to_string(),
             }),
         )
             .into_response(),
