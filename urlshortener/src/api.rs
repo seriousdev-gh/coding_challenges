@@ -6,14 +6,22 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use tower::{Layer, ServiceBuilder};
+use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, OnRequest, TraceLayer};
+use tracing::Level;
 
 use crate::{services, AppState};
 
 pub(crate) fn create_router(state: AppState) -> Router {
+    let trace_layer = TraceLayer::new_for_http()
+        .on_request(DefaultOnRequest::new().level(Level::INFO))
+        .on_response(DefaultOnResponse::new().level(Level::INFO));
+
     Router::new()
         .route("/api/short", post(create_short_url))
         .route("/:key", get(redirect_to_long_url))
         .with_state(state)
+        .layer(ServiceBuilder::new().layer(trace_layer))
 }
 
 async fn create_short_url(

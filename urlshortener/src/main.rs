@@ -1,11 +1,10 @@
-use std::{env};
+use std::env;
 
-use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use dotenv::dotenv;
-
-mod services;
+use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 mod api;
 mod entities;
+mod services;
 use entities::{prelude::*, *};
 
 #[tokio::main]
@@ -21,16 +20,22 @@ async fn main() {
 
     let mut opt = ConnectOptions::new(db_url.to_owned());
     opt.sqlx_logging_level(tracing::log::LevelFilter::Debug);
-    let conn = Database::connect(opt).await.expect("Database connection failed");
+    let conn = Database::connect(opt)
+        .await
+        .expect("Database connection failed");
     let state = AppState { conn, base_url };
     let app = api::create_router(state);
-    let listener = tokio::net::TcpListener::bind(bind_url.clone()).await.expect(&format!("Failed to create listener on {}", bind_url));
+    let listener = tokio::net::TcpListener::bind(bind_url.clone())
+        .await
+        .expect(&format!("Failed to create listener on {}", bind_url));
     tracing::info!("Listening on {}", listener.local_addr().unwrap());
-    axum::serve(listener, app).await.expect("Failed to start server");
+    axum::serve(listener, app)
+        .await
+        .expect("Failed to start server");
 }
 
 #[derive(Clone)]
 struct AppState {
     conn: DatabaseConnection,
-    base_url: String
+    base_url: String,
 }
