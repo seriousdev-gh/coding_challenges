@@ -20,13 +20,9 @@ async fn main() {
 
     let mut opt = ConnectOptions::new(db_url.to_owned());
     opt.sqlx_logging_level(tracing::log::LevelFilter::Debug);
-
     let conn = Database::connect(opt).await.expect("Database connection failed");
-
     let state = AppState { conn };
-
     let app = api::create_router(state);
-
     let listener = tokio::net::TcpListener::bind(server_url.clone()).await.expect(&format!("Failed to create listener on {}", server_url));
     tracing::info!("Listening on {}", listener.local_addr().unwrap());
     axum::serve(listener, app).await.expect("Failed to start server");

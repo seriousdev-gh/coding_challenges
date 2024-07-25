@@ -6,8 +6,8 @@ default-run = "urlshortener"
 
 [dependencies]
 axum = "0.7.5"
+base64 = "0.22.1"
 dotenv = "0.15.0"
-rand = "0.8.5"
 sea-orm = { version = "0.12.15", features = ["sqlx-mysql", "runtime-tokio-native-tls", "macros"] }
 sea-orm-migration = "0.12.15"
 serde = { version = "1.0.204", features = ["derive"] }
