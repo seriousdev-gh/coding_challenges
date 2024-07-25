@@ -2,15 +2,17 @@ use axum::{
     extract::{Path, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
+
 use serde::{Deserialize, Serialize};
 use tower::{Layer, ServiceBuilder};
 use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, OnRequest, TraceLayer};
 use tracing::Level;
 
 use crate::{services, AppState};
+use services::delete_short_url::DeleteResult;
 
 pub(crate) fn create_router(state: AppState) -> Router {
     let trace_layer = TraceLayer::new_for_http()
@@ -18,8 +20,9 @@ pub(crate) fn create_router(state: AppState) -> Router {
         .on_response(DefaultOnResponse::new().level(Level::INFO));
 
     Router::new()
-        .route("/api/short", post(create_short_url))
+        .route("/", post(create_short_url))
         .route("/:key", get(redirect_to_long_url))
+        .route("/:key", delete(delete_short_url))
         .with_state(state)
         .layer(ServiceBuilder::new().layer(trace_layer))
 }
@@ -86,6 +89,28 @@ async fn redirect_to_long_url(state: State<AppState>, Path(key): Path<String>) -
             (StatusCode::FOUND, [(header::LOCATION, short_url.long_url)]).into_response()
         }
         Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Key not found".to_string(),
+            }),
+        )
+            .into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: err.to_string(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+async fn delete_short_url(state: State<AppState>, Path(key): Path<String>) -> Response {
+    let result = services::delete_short_url::call(&key, &state.conn).await;
+
+    match result {
+        Ok(DeleteResult::Deleted) => (StatusCode::OK).into_response(),
+        Ok(DeleteResult::NotFound) => (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
                 error: "Key not found".to_string(),
