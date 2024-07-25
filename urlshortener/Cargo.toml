@@ -5,7 +5,7 @@ edition = "2021"
 default-run = "urlshortener"
 
 [dependencies]
-axum = "0.7.5"
+axum = { version = "0.7.5", features = ["macros"] }
 base64 = "0.22.1"
 dotenv = "0.15.0"
 sea-orm = { version = "0.12.15", features = ["sqlx-mysql", "runtime-tokio-native-tls", "macros"] }

@@ -5,6 +5,7 @@ use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 mod api;
 mod entities;
 mod services;
+mod error_handler;
 use entities::{prelude::*, *};
 
 #[tokio::main]
