@@ -13,9 +13,14 @@ use tracing::Level;
 
 use crate::{
     error_handler::{AppError, ErrorResponse},
-    services, AppState,
+    init_app_state::AppState,
+    services,
 };
 use services::delete_short_url::DeleteResult;
+
+#[cfg(test)]
+#[path = "./api_test.rs"]
+mod api_test;
 
 pub(crate) fn create_router(state: AppState) -> Router {
     let trace_layer = TraceLayer::new_for_http()

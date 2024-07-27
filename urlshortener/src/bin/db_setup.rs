@@ -1,4 +1,3 @@
-use dotenv::dotenv;
 use migrator::Migrator;
 use sea_orm::{Database, Statement};
 use sea_orm_migration::prelude::*;
@@ -8,8 +7,7 @@ mod migrator;
 
 #[tokio::main]
 async fn main() {
-    dotenv().ok();
-    tracing_subscriber::fmt::init();
+    urlshortener::init_app_state::load_envs();
 
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL is not set in .env file");
     let db_name = env::var("DATABASE_NAME").expect("DATABASE_URL is not set in .env file");

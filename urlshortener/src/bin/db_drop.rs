@@ -1,4 +1,3 @@
-use dotenv::dotenv;
 use sea_orm::{Database, Statement};
 use sea_orm_migration::prelude::*;
 use std::env;
@@ -7,8 +6,7 @@ mod migrator;
 
 #[tokio::main]
 async fn main() {
-    dotenv().ok();
-    tracing_subscriber::fmt::init();
+    urlshortener::init_app_state::load_envs();
 
     let db_name = env::var("DATABASE_NAME").expect("DATABASE_URL is not set in .env file");
     let db_host = env::var("DATABASE_HOST").expect("DATABASE_HOST is not set in .env file");

@@ -2,10 +2,15 @@ https://codingchallenges.fyi/challenges/challenge-url-shortener/
 
 ## Commands
 
- - `cargo run --bin db_setup` - Create database and run migrations
- - `cargo run` - Start server
+### On windows
+#### Start server
+ - `$env:APP_ENV="dev"; cargo run --bin db_setup` - Create database and run migrations
+ - `$env:APP_ENV="dev"; cargo run` - Start server
 
- 
+#### Run tests
+ - `$env:APP_ENV="test"; cargo run --bin db_setup` - Create database and run migrations
+ - `$env:APP_ENV="test"; cargo test` - Run tests
+
  - `cargo run --bin db_drop` - Drop database
 
 ## Development
