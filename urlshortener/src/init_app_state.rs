@@ -13,7 +13,6 @@ pub fn load_envs() {
     let app_env =
         env::var("APP_ENV").expect("Specify environment variable APP_ENV `dev` or `test`");
     dotenv::from_filename(format!("env.{}", app_env)).ok();
-    tracing_subscriber::fmt::init();
 }
 
 pub async fn call() -> AppState {

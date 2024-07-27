@@ -9,8 +9,10 @@ use entities::{prelude::*, *};
 #[tokio::main]
 async fn main() {
     let app_state = init_app_state::call().await;
-    let bind_url = app_state.bind_url.clone();
+    
+    tracing_subscriber::fmt::init();
 
+    let bind_url = app_state.bind_url.clone();
     let app = api::create_router(app_state);
     let listener = tokio::net::TcpListener::bind(&bind_url)
         .await

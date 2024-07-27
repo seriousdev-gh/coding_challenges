@@ -7,7 +7,7 @@ mod migrator;
 #[tokio::main]
 async fn main() {
     urlshortener::init_app_state::load_envs();
-
+    tracing_subscriber::fmt::init();
     let db_name = env::var("DATABASE_NAME").expect("DATABASE_URL is not set in .env file");
     let db_host = env::var("DATABASE_HOST").expect("DATABASE_HOST is not set in .env file");
 

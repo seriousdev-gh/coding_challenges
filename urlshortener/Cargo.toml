@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 default-run = "urlshortener"
 
+[env]
+RUST_TEST_THREADS = "1"
+
 [dependencies]
 axum = { version = "0.7.5", features = ["macros"] }
 base64 = "0.22.1"
