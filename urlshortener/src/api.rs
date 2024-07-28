@@ -7,8 +7,8 @@ use axum::{
 };
 
 use serde::{Deserialize, Serialize};
-use tower::{Layer, ServiceBuilder};
-use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, OnRequest, TraceLayer};
+use tower::{ServiceBuilder};
+use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
 use crate::{

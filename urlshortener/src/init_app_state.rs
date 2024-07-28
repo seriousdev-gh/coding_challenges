@@ -12,7 +12,7 @@ pub struct AppState {
 pub fn load_envs() {
     let app_env =
         env::var("APP_ENV").expect("Specify environment variable APP_ENV `dev` or `test`");
-    dotenv::from_filename(format!("env.{}", app_env)).ok();
+    dotenvy::from_filename(format!("env.{}", app_env)).ok();
 }
 
 pub async fn call() -> AppState {
