@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+docker-compose run --rm --build --service-ports app server serve dev

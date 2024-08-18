@@ -2,12 +2,21 @@ https://codingchallenges.fyi/challenges/challenge-url-shortener/
 
 ## Commands
 
+ - `docker-compose stop` - Stop server and db
+
 ### On windows
- - ./docker/dev_setup.ps1 - Setup dev database
- - ./docker/dev_up.ps1 - Run server
+ - `./docker/dev_setup.ps1` - Setup dev database
+ - `./docker/dev_up.ps1` - Run server
  
- - ./docker/test_setup.ps1 - Setup test database
- - ./docker/test_run.ps1 - Run tests
+ - `./docker/test_setup.ps1` - Setup test database
+ - `./docker/test_run.ps1` - Run tests
+
+### On linux
+ - `./docker/dev_setup` - Setup dev database
+ - `./docker/dev_up` - Run server
+ 
+ - `./docker/test_setup` - Setup test database
+ - `./docker/test_run` - Run tests
 
 ## Development
 

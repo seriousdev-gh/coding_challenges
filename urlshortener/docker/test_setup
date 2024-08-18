@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+docker-compose run --build --rm app server db_setup test
