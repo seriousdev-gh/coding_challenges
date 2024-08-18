@@ -19,6 +19,7 @@ async fn setup(conn: &DatabaseConnection) {
 }
 
 async fn subject() -> Response<Body> {
+    init_app_state::load_envs("test");
     let app_state = init_app_state::call().await;
     setup(&app_state.conn).await;
 
@@ -48,6 +49,6 @@ async fn post_short_url() {
     let body: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(
         body,
-        json!({ "key": "1GUJlg", "long_url": "https://example.com", "short_url": "http://localhost:3000/1GUJlg" })
+        json!({ "key": "1GUJlg", "long_url": "https://example.com", "short_url": "http://localhost:5000/1GUJlg" })
     );
 }

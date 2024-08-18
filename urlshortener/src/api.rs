@@ -18,10 +18,6 @@ use crate::{
 };
 use services::delete_short_url::DeleteResult;
 
-#[cfg(test)]
-#[path = "../test/mod.rs"]
-mod test;
-
 pub(crate) fn create_router(state: AppState) -> Router {
     let trace_layer = TraceLayer::new_for_http()
         .on_request(DefaultOnRequest::new().level(Level::INFO))

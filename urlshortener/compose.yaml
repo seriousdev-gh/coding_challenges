@@ -1,0 +1,58 @@
+# Comments are provided throughout this file to help you get started.
+# If you need more help, visit the Docker Compose reference guide at
+# https://docs.docker.com/go/compose-spec-reference/
+
+# Here the instructions define your application as a service called "server".
+# This service is built from the Dockerfile in the current directory.
+# You can add other services your application may depend on here, such as a
+# database or a cache. For examples, see the Awesome Compose repository:
+# https://github.com/docker/awesome-compose
+services:
+  test:
+    init: true
+    build:
+      dockerfile: ./test.Dockerfile
+      context: .
+      target: build_test
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    init: true
+    build:
+      context: .
+      target: final
+    ports:
+      - 5000:5000
+
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    # We use a mariadb image which supports both amd64 & arm64 architecture
+    image: mariadb:10-focal
+    # If you really want to use MySQL, uncomment the following line
+    #image: mysql:8
+    command: '--default-authentication-plugin=mysql_native_password'
+    healthcheck:
+      # test: ['CMD-SHELL', 'mysqladmin ping -h 127.0.0.1 --password="$$(cat /run/secrets/db-password)" --silent']
+      test: ['CMD-SHELL', 'mysqladmin ping -h 127.0.0.1 --password=root --silent']
+      interval: 3s
+      retries: 5
+      start_period: 30s
+    # secrets:
+    #   - db-password
+    volumes:
+      - db-data:/var/lib/mysql
+    environment:
+      - MYSQL_DATABASE=urlshortener
+      # - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/db-password
+      - MYSQL_ROOT_PASSWORD=root
+
+volumes:
+  db-data:
+
+# secrets:
+#   db-password:
+#     file: db/password.txt

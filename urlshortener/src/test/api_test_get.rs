@@ -22,6 +22,7 @@ async fn setup(conn: &DatabaseConnection) {
 }
 
 async fn subject() -> Response<Body> {
+    init_app_state::load_envs("test");
     let app_state = init_app_state::call().await;
     setup(&app_state.conn).await;
     let app = create_router(app_state);

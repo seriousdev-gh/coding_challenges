@@ -3,15 +3,11 @@ https://codingchallenges.fyi/challenges/challenge-url-shortener/
 ## Commands
 
 ### On windows
-#### Start server
- - `$env:APP_ENV="dev"; cargo run --bin db_setup` - Create database and run migrations
- - `$env:APP_ENV="dev"; cargo run` - Start server
-
-#### Run tests
- - `$env:APP_ENV="test"; cargo run --bin db_setup` - Create database and run migrations
- - `$env:APP_ENV="test"; cargo test` - Run tests
-
- - `cargo run --bin db_drop` - Drop database
+ - ./docker/dev_setup.ps1 - Setup dev database
+ - ./docker/dev_up.ps1 - Run server
+ 
+ - ./docker/test_setup.ps1 - Setup test database
+ - ./docker/test_run.ps1 - Run tests
 
 ## Development
 

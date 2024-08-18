@@ -9,14 +9,11 @@ pub struct AppState {
     pub bind_url: String,
 }
 
-pub fn load_envs() {
-    let app_env =
-        env::var("APP_ENV").expect("Specify environment variable APP_ENV `dev` or `test`");
-    dotenvy::from_filename(format!("env.{}", app_env)).ok();
+pub fn load_envs(env_name: &str) {
+    dotenvy::from_filename(format!("env.{}", env_name)).expect(format!("env.{} not found", env_name).as_str());
 }
 
 pub async fn call() -> AppState {
-    load_envs();
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL is not set in .env file");
     let host = env::var("HOST").expect("HOST is not set in .env file");
     let port = env::var("PORT").expect("PORT is not set in .env file");
