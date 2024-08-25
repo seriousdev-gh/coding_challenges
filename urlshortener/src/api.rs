@@ -8,7 +8,10 @@ use axum::{
 
 use serde::{Deserialize, Serialize};
 use tower::{ServiceBuilder};
-use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer};
+use tower_http::{
+    services::{ServeDir, ServeFile},
+    trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer},
+};
 use tracing::Level;
 
 use crate::{
@@ -24,11 +27,14 @@ pub(crate) fn create_router(state: AppState) -> Router {
         .on_response(DefaultOnResponse::new().level(Level::INFO));
 
     Router::new()
-        .route("/", post(create_short_url))
+        .route_service("/", ServeFile::new("/var/assets/index.html"))
+        .nest_service("/assets", ServeDir::new("/var/assets"))
         .route("/:key", get(redirect_to_long_url))
-        .route("/:key", delete(delete_short_url))
+        .route("/api", post(create_short_url))
+        .route("/api/:key", delete(delete_short_url))
         .with_state(state)
         .layer(ServiceBuilder::new().layer(trace_layer))
+        
 }
 
 async fn create_short_url(

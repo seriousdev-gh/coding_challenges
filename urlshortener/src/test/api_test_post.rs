@@ -30,7 +30,7 @@ async fn subject() -> Response<Body> {
         .oneshot(
             Request::builder()
                 .method(http::Method::POST)
-                .uri("/")
+                .uri("/api")
                 .header(http::header::CONTENT_TYPE, "application/json")
                 .body(Body::from(request))
                 .unwrap(),
