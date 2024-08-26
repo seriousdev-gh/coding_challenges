@@ -12,7 +12,17 @@ defaults:
     working-directory: urlshortener
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v4
+      - name: setup tests
+        run: docker compose run --build --rm app server db_setup test
+      - name: run tests
+        run: docker compose run --build --rm test tests
   prepare-environment:
+    needs: test
     runs-on: self-hosted
     steps:
       - name: Stop and remove containers, networks
@@ -24,11 +34,7 @@ jobs:
     needs: prepare-environment
     steps:
       - name: checkout repo
-        uses: actions/checkout@v3
-      - name: setup tests
-        run: docker compose run --build --rm app server db_setup test
-      - name: run tests
-        run: docker compose run --build --rm test tests
+        uses: actions/checkout@v4
       - name: dev setup
         run: docker compose run --build --rm app server db_setup dev
       - name: dev up
