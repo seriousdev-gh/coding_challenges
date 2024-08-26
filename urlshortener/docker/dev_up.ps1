@@ -1,2 +1,4 @@
-$exe = "docker compose"
-&$exe up
+$env:SERVICE_HOST = 'http://localhost'
+$exe = "docker"
+&$exe compose up
+Remove-Item Env:\SERVICE_HOST
