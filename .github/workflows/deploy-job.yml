@@ -33,5 +33,5 @@ jobs:
         run: docker compose run --build --rm app server db_setup dev
       - name: dev up
         env:
-          SERVICE_HOST: ${{ secrets.SERVICE_HOST }}
+          SERVICE_HOST: ${{ vars.SERVICE_HOST }}
         run: docker compose up -d
