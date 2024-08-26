@@ -1,0 +1,35 @@
+name: Deploy urlshortener by runner
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - urlshortener/**
+      - .github/workflows/**
+
+defaults:
+  run:
+    working-directory: urlshortener
+
+jobs:
+  prepare-environment:
+    runs-on: self-hosted
+    steps:
+      - name: Stop and remove containers, networks
+        run: docker compose down
+      - name: Remove unused data
+        run: docker system prune -a -f
+  deploy:
+    runs-on: self-hosted
+    needs: prepare-environment
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v3
+      - name: setup tests
+        run: docker compose run --build --rm app server db_setup test
+      - name: run tests
+        run: docker compose run --build --rm test tests
+      - name: dev setup
+        run: docker compose run --build --rm app server db_setup dev
+      - name: dev up
+        run: docker compose up -d

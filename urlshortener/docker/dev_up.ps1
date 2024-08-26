@@ -1,2 +1,2 @@
-$exe = "docker-compose"
-&$exe run --rm --build --service-ports app server serve dev
+$exe = "docker compose"
+&$exe up

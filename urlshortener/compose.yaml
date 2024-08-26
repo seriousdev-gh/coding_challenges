@@ -9,6 +9,7 @@
 # https://github.com/docker/awesome-compose
 services:
   test:
+    profiles: ["test-only"]
     init: true
     build:
       dockerfile: ./test.Dockerfile
@@ -25,7 +26,7 @@ services:
       target: final
     ports:
       - 5000:5000
-
+    command: server serve dev
     depends_on:
       db:
         condition: service_healthy

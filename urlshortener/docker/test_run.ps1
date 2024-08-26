@@ -1,2 +1,2 @@
-$exe = "docker-compose"
-&$exe up --build test
+$exe = "docker compose"
+&$exe run --build --rm test tests

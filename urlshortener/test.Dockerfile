@@ -19,5 +19,3 @@ RUN --mount=type=bind,source=src,target=src \
     --mount=type=cache,target=/usr/local/cargo/git/db \
     --mount=type=cache,target=/usr/local/cargo/registry/ \
 cp `cargo build --tests --message-format=json -q | jq -r 'select(.target.kind[0] == "bin") | .executable'` /bin/tests
-
-CMD ["/bin/tests"]

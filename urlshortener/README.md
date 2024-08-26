@@ -2,7 +2,7 @@ https://codingchallenges.fyi/challenges/challenge-url-shortener/
 
 ## Commands
 
- - `docker-compose stop` - Stop server and db
+ - `docker compose stop` - Stop server and db
 
 ### On windows
  - `./docker/dev_setup.ps1` - Setup dev database
@@ -22,3 +22,6 @@ https://codingchallenges.fyi/challenges/challenge-url-shortener/
 
 ### Create new entities from migrations
  - `sea-orm-cli generate entity -o src/entities`
+
+
+......

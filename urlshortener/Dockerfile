@@ -64,6 +64,3 @@ COPY assets /var/assets
 
 # Expose the port that the application listens on.
 EXPOSE 5000
-
-# What the container should run when it is started.
-CMD ["/bin/server"]
