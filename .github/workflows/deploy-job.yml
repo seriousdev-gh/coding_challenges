@@ -21,17 +21,9 @@ jobs:
         run: docker compose run --build --rm test server db_setup test
       - name: run tests
         run: docker compose run --rm test tests
-  prepare-environment:
-    needs: test
-    runs-on: self-hosted
-    steps:
-      - name: Stop and remove containers, networks
-        run: docker compose down
-      # - name: Remove unused data
-      #   run: docker system prune -a -f
   deploy:
     runs-on: self-hosted
-    needs: prepare-environment
+    needs: test
     steps:
       - name: checkout repo
         uses: actions/checkout@v4
@@ -40,4 +32,4 @@ jobs:
       - name: dev up
         env:
           SERVICE_HOST: ${{ vars.SERVICE_HOST }}
-        run: docker compose up -d
+        run: docker compose up --build -d

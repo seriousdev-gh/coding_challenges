@@ -55,7 +55,6 @@ services:
 
 volumes:
   db-data:
-    external: true
 
 # secrets:
 #   db-password:
