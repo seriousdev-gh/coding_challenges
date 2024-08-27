@@ -1,2 +1,2 @@
 $exe = "docker"
-&$exe compose run --build --rm app server db_setup test
+&$exe compose run --build --rm test server db_setup test

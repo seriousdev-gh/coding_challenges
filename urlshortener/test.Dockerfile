@@ -18,4 +18,6 @@ RUN --mount=type=bind,source=src,target=src \
     --mount=type=cache,target=/app/target/ \
     --mount=type=cache,target=/usr/local/cargo/git/db \
     --mount=type=cache,target=/usr/local/cargo/registry/ \
-cp `cargo build --tests --message-format=json -q | jq -r 'select(.target.kind[0] == "bin") | .executable'` /bin/tests
+    cargo build --locked --bins --tests --message-format=json -q > build_output && \
+    cp `cat build_output | jq -r 'select(.target.kind[0] == "bin") | select(.profile.test == false) | .executable'` /bin/server && \
+    cp `cat build_output | jq -r 'select(.target.kind[0] == "bin") | select(.profile.test == true) | .executable'` /bin/tests

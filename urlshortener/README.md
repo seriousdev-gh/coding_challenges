@@ -1,5 +1,7 @@
 https://codingchallenges.fyi/challenges/challenge-url-shortener/
 
+Result: http://seriousdevs.ru:5000/
+
 ## Commands
 
  - `docker compose stop` - Stop server and db
@@ -22,6 +24,3 @@ https://codingchallenges.fyi/challenges/challenge-url-shortener/
 
 ### Create new entities from migrations
  - `sea-orm-cli generate entity -o src/entities`
-
-
-......
