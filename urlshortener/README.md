@@ -24,3 +24,5 @@ Result: http://seriousdevs.ru:5000/
 
 ### Create new entities from migrations
  - `sea-orm-cli generate entity -o src/entities`
+
+.
