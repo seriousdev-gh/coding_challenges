@@ -1,7 +1,8 @@
 $entrypoint = __FILE__
 require_relative 'common'
 
-def calculate_data(file, offset, chunk_size, index, nworkers)
+def calculate_data(file, chunk_size, index, nworkers)
+  offset = index * chunk_size
   skip_line = index != 0
   buffer = IO::Buffer.map(File.open(file), nil, 0, IO::Buffer::READONLY)
   data = {}
