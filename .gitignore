@@ -1,3 +1,5 @@
 /.idea/
 1brc/1brc
 1brc/*.output*
+
+*/target/
