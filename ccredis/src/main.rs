@@ -1,13 +1,25 @@
 use core::str;
 
-// #[derive(Debug, Clone)]
-// struct MessageParseError(String);
-// impl std::error::Error for MessageParseError {}
-// impl std::fmt::Display for MessageParseError {
-//     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-//         write!(f, "Error while parsing message: {}", self.0)
-//     }
-// }
+#[derive(Debug)]
+enum ParseError {
+    InvalidByte(u8),           // When an unexpected byte is encountered
+    InvalidUtf8,               // When there's an error decoding UTF-8
+    InvalidInteger,            // When parsing an integer fails
+    Other(String),             // Generic error case with a custom message
+}
+
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParseError::InvalidByte(byte) => write!(f, "Invalid byte encountered: 0x{:02x}", byte),
+            ParseError::InvalidUtf8 => write!(f, "Invalid UTF-8 sequence encountered"),
+            ParseError::InvalidInteger => write!(f, "Invalid integer format encountered"),
+            ParseError::Other(msg) => write!(f, "{}", msg),
+        }
+    }
+}
+
+impl std::error::Error for ParseError {}
 
 #[derive(Debug, PartialEq)]
 enum Message {
@@ -39,20 +51,32 @@ impl Message {
 #[derive(Debug)]
 enum State {
     ParseType,
-    ParseArraySize,
-    ParseBulkStringSize,
+    ReadBuf,
     ReadBulkStringContent,
-    ParseSimpleString,
-    ParseError,
-    ParseInteger,
+    AwaitBulkStringEnd,
+}
+
+#[derive(Debug)]
+enum MessageType {
+    Unknown,
+    Array,
+    BulkString,
+    SimpleString,
+    Integer,
+    Error,
+}
+
+struct ArrayStackItem {
+    items: Vec<Message>,
+    size: usize,
 }
 
 struct MessageParser {
-    array_stack: Vec<(Vec<Message>, usize)>,
-    result: Option<Message>,
+    array_stack: Vec<ArrayStackItem>,
     buf: Vec<u8>,
     prev_byte: u8,
     state: State,
+    message_type: MessageType,
     bulk_string_size: usize,
 }
 
@@ -60,119 +84,121 @@ impl MessageParser {
     fn new() -> Self {
         Self {
             array_stack: Vec::new(),
-            result: None,
             buf: Vec::new(),
             bulk_string_size: 0,
             prev_byte: 0,
             state: State::ParseType,
+            message_type: MessageType::Unknown,
         }
     }
 
-    fn value(self) -> Option<Message> {
-        return self.result;
-    }
-
-    // TODO: implement errors instead of panic
-    fn add_byte(&mut self, byte: u8) -> bool {
+    // returns Result<Some> when message is fully parsed
+    // returns Result<None> when message is partially parsed
+    // returns Err<MessageParseError> in case of some error
+    fn add_byte(&mut self, byte: u8) -> Result<Option<Message>, ParseError> {
         println!(
-            "add byte: {:?} state: {:?} buffer: {:?}",
+            "add byte: {:?} state: {:?} message_type: {:?} buffer: {:?}",
             byte as char,
             self.state,
-            str::from_utf8(self.buf.as_slice())
+            self.message_type,
+            str::from_utf8(&self.buf)
         );
         let mut parsed_item: Option<Message> = Option::None;
+
         match self.state {
-            State::ParseType => match byte {
-                b'\r' => {}
-                b'\n' => {
-                    if self.is_line_end(byte) && self.result.is_some() {
-                        return true;
+            State::ParseType => {
+                match byte {
+                    b'*' => self.message_type = MessageType::Array,
+                    b'+' => self.message_type = MessageType::SimpleString,
+                    b'-' => self.message_type = MessageType::Error,
+                    b':' => self.message_type = MessageType::Integer,
+                    b'$' => self.message_type = MessageType::BulkString,
+                    _ => return Err(ParseError::InvalidByte(byte))
+                };
+                self.buf.clear();
+                self.state = State::ReadBuf;
+            }
+
+            State::ReadBuf => {
+                self.buf.push(byte);
+                if self.is_line_end(byte) {
+                    self.state = State::ParseType;
+                    self.parse_buffer(&mut parsed_item)?;
+
+                    if let Some(result) = self.try_result(parsed_item) {
+                        return Ok(Some(result));
                     }
                 }
-                b'*' => self.state = State::ParseArraySize,
-                b'+' => self.state = State::ParseSimpleString,
-                b'-' => self.state = State::ParseError,
-                b':' => self.state = State::ParseInteger,
-                b'$' => self.state = State::ParseBulkStringSize,
-                _ => {
-                    panic!("Invalid first byte: {:?}", byte as char);
-                }
-            },
-            State::ParseArraySize => {
-                self.buf.push(byte);
-                if self.buf == "-1".as_bytes() {
-                    self.state = State::ParseType;
-                    self.buf.clear();
-                    parsed_item = Some(Message::Array(None));
-                } else if self.buf == "0".as_bytes() {
-                    self.state = State::ParseType;
-                    self.buf.clear();
-                    parsed_item = Some(Message::array(Vec::new()));
-                } else if self.is_line_end(byte) {
-                    let size = self.parse_buffer_as_size();
-                    self.array_stack.push((Vec::new(), size));
-                    self.state = State::ParseType;
-                    self.buf.clear();
-                }
             }
-            State::ParseBulkStringSize => {
-                self.buf.push(byte);
-                if self.buf == "-1".as_bytes() {
-                    self.state = State::ParseType;
-                    self.buf.clear();
-                    parsed_item = Some(Message::BulkString(None));
-                } else if self.is_line_end(byte) {
-                    self.bulk_string_size = self.parse_buffer_as_size();
-                    self.state = State::ReadBulkStringContent;
-                    self.buf.clear();
-                }
-            }
+
             State::ReadBulkStringContent => {
                 if self.buf.len() == self.bulk_string_size {
-                    parsed_item = Some(Message::BulkString(Some(self.buf.to_owned())));
-                    self.buf.clear();
-                    self.state = State::ParseType;
+                    self.state = State::AwaitBulkStringEnd;
                 } else {
                     self.buf.push(byte);
                 }
             }
-            State::ParseSimpleString => {
-                self.buf.push(byte);
-                if self.is_line_end(byte) {
-                    parsed_item = Some(Message::SimpleString(
-                        self.parse_buffer_as_str().to_string(),
-                    ));
-                    self.buf.clear();
-                    self.state = State::ParseType;
-                }
-            }
-            State::ParseError => {
-                self.buf.push(byte);
-                if self.is_line_end(byte) {
-                    parsed_item = Some(Message::Error(self.parse_buffer_as_str().to_string()));
-                    self.buf.clear();
-                    self.state = State::ParseType;
-                }
-            }
-            State::ParseInteger => {
-                self.buf.push(byte);
-                if self.is_line_end(byte) {
-                    parsed_item = Some(Message::Integer(self.parse_buffer_as_int()));
-                    self.buf.clear();
-                    self.state = State::ParseType;
-                }
-            }
-        }
 
-        if let Some(item) = parsed_item {
-            self.result = self.process_parsed_item(item);
-            if self.result.is_some() && self.is_line_end(byte) {
-                return true;
+            State::AwaitBulkStringEnd => {
+                if self.is_line_end(byte) {
+                    self.state = State::ParseType;
+                    parsed_item = Some(Message::BulkString(Some(self.buf.to_owned())));
+                    if let Some(result) = self.try_result(parsed_item) {
+                        return Ok(Some(result));
+                    }
+                }
             }
         }
 
         self.prev_byte = byte;
-        false
+        Ok(None)
+    }
+
+    fn try_result(&mut self, parsed_item: Option<Message>) -> Option<Message> {
+        if let Some(item) = parsed_item {
+            return self.process_parsed_item(item);
+        }
+        None
+    }
+
+    fn parse_buffer(&mut self, parsed_item: &mut Option<Message>) -> Result<(), ParseError> {
+        self.buf.truncate(self.buf.len().saturating_sub(2));
+        println!("Parse buffer: {:?}", str::from_utf8(&self.buf));
+        let as_string = self.parse_buffer_as_str()?;
+        match self.message_type {
+            MessageType::SimpleString => {
+                *parsed_item = Some(Message::simple_string(as_string));
+            }
+            MessageType::Error => {
+                *parsed_item = Some(Message::error(as_string));
+            }
+            MessageType::Integer => {
+                *parsed_item = Some(Message::Integer(self.parse_buffer_as_int()?));
+            }
+            MessageType::BulkString => match as_string {
+                "-1" => *parsed_item = Some(Message::BulkString(None)),
+                _ => {
+                    self.bulk_string_size = self.parse_buffer_as_size()?;
+                    self.buf.clear();
+                    self.state = State::ReadBulkStringContent;
+                }
+            }
+            MessageType::Array => match as_string {
+                "-1" => *parsed_item = Some(Message::Array(None)),
+                "0" => *parsed_item = Some(Message::array(Vec::new())),
+                _ => {
+                    let size = self.parse_buffer_as_size()?;
+                    self.array_stack.push(ArrayStackItem {
+                        items: Vec::new(),
+                        size: size,
+                    });
+                }
+            },
+            MessageType::Unknown => {
+                return Err(ParseError::Other("Unknown message type".to_string()));
+            }
+        }
+        Ok(())
     }
 
     // puts parsed message to current array on stack
@@ -180,9 +206,9 @@ impl MessageParser {
     // then stack is empty returns Some(message)
     fn process_parsed_item(&mut self, message: Message) -> Option<Message> {
         if let Some(arr) = self.array_stack.last_mut() {
-            arr.0.push(message);
-            if arr.0.len() == arr.1 {
-                let array_message = Message::Array(Some(self.array_stack.pop().unwrap().0));
+            arr.items.push(message);
+            if arr.items.len() == arr.size {
+                let array_message = Message::array(self.array_stack.pop().unwrap().items);
                 let result = self.process_parsed_item(array_message);
                 if result.is_some() {
                     return result;
@@ -197,21 +223,19 @@ impl MessageParser {
         }
     }
 
-    fn parse_buffer_as_str(&self) -> &str {
-        std::str::from_utf8(&self.buf)
-            .map(|s| s.trim_end())
-            .unwrap()
+    fn parse_buffer_as_str(&self) -> Result<&str, ParseError> {
+        std::str::from_utf8(&self.buf).map_err(|_| ParseError::InvalidUtf8)
     }
 
-    fn parse_buffer_as_size(&self) -> usize {
-        self.parse_buffer_as_str().parse().unwrap()
+    fn parse_buffer_as_size(&self) -> Result<usize, ParseError> {
+        self.parse_buffer_as_str()?.parse().map_err(|_| ParseError::InvalidInteger)
     }
 
-    fn parse_buffer_as_int(&self) -> i64 {
-        self.parse_buffer_as_str().parse().unwrap()
+    fn parse_buffer_as_int(&self) -> Result<i64, ParseError> {
+        self.parse_buffer_as_str()?.parse().map_err(|_| ParseError::InvalidInteger)
     }
 
-    fn is_line_end(&mut self, byte: u8) -> bool {
+    fn is_line_end(&self, byte: u8) -> bool {
         self.prev_byte == b'\r' && byte == b'\n'
     }
 }
@@ -256,15 +280,18 @@ mod tests {
 
     fn parse_string(string: &str) -> Message {
         let mut parser = MessageParser::new();
+        let mut message : Option<Message> = None;
         for (i, byte) in string.as_bytes().iter().enumerate() {
+            message = parser.add_byte(*byte).unwrap();
+
             assert_eq!(
-                parser.add_byte(*byte),
+                message.is_some(),
                 i == string.len() - 1,
                 "Received: {:?}",
                 *byte as char
             );
         }
-        parser.value().unwrap()
+        message.unwrap()
     }
 
     #[test]
