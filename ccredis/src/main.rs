@@ -1,11 +1,15 @@
 use core::str;
+use std::{
+    io::{Read, Write},
+    net::{TcpListener, TcpStream},
+};
 
 #[derive(Debug)]
 enum ParseError {
-    InvalidByte(u8),           // When an unexpected byte is encountered
-    InvalidUtf8,               // When there's an error decoding UTF-8
-    InvalidInteger,            // When parsing an integer fails
-    Other(String),             // Generic error case with a custom message
+    InvalidByte(u8), // When an unexpected byte is encountered
+    InvalidUtf8,     // When there's an error decoding UTF-8
+    InvalidInteger,  // When parsing an integer fails
+    Other(String),   // Generic error case with a custom message
 }
 
 impl std::fmt::Display for ParseError {
@@ -92,6 +96,15 @@ impl MessageParser {
         }
     }
 
+    fn reset_state(&mut self) {
+        self.array_stack.clear();
+        self.buf.clear();
+        self.bulk_string_size = 0;
+        self.prev_byte = 0;
+        self.state = State::ParseType;
+        self.message_type = MessageType::Unknown;
+    }
+
     // returns Result<Some> when message is fully parsed
     // returns Result<None> when message is partially parsed
     // returns Err<MessageParseError> in case of some error
@@ -113,7 +126,7 @@ impl MessageParser {
                     b'-' => self.message_type = MessageType::Error,
                     b':' => self.message_type = MessageType::Integer,
                     b'$' => self.message_type = MessageType::BulkString,
-                    _ => return Err(ParseError::InvalidByte(byte))
+                    _ => return Err(ParseError::InvalidByte(byte)),
                 };
                 self.buf.clear();
                 self.state = State::ReadBuf;
@@ -126,6 +139,7 @@ impl MessageParser {
                     self.parse_buffer(&mut parsed_item)?;
 
                     if let Some(result) = self.try_result(parsed_item) {
+                        self.reset_state();
                         return Ok(Some(result));
                     }
                 }
@@ -144,6 +158,7 @@ impl MessageParser {
                     self.state = State::ParseType;
                     parsed_item = Some(Message::BulkString(Some(self.buf.to_owned())));
                     if let Some(result) = self.try_result(parsed_item) {
+                        self.reset_state();
                         return Ok(Some(result));
                     }
                 }
@@ -182,7 +197,7 @@ impl MessageParser {
                     self.buf.clear();
                     self.state = State::ReadBulkStringContent;
                 }
-            }
+            },
             MessageType::Array => match as_string {
                 "-1" => *parsed_item = Some(Message::Array(None)),
                 "0" => *parsed_item = Some(Message::array(Vec::new())),
@@ -228,11 +243,15 @@ impl MessageParser {
     }
 
     fn parse_buffer_as_size(&self) -> Result<usize, ParseError> {
-        self.parse_buffer_as_str()?.parse().map_err(|_| ParseError::InvalidInteger)
+        self.parse_buffer_as_str()?
+            .parse()
+            .map_err(|_| ParseError::InvalidInteger)
     }
 
     fn parse_buffer_as_int(&self) -> Result<i64, ParseError> {
-        self.parse_buffer_as_str()?.parse().map_err(|_| ParseError::InvalidInteger)
+        self.parse_buffer_as_str()?
+            .parse()
+            .map_err(|_| ParseError::InvalidInteger)
     }
 
     fn is_line_end(&self, byte: u8) -> bool {
@@ -240,37 +259,120 @@ impl MessageParser {
     }
 }
 
-// fn handle_client(stream: &mut TcpStream) {
-//     let mut buf: Vec<u8> = Vec::new();
-//     let mut prev_byte: u8 = 0;
-//     for byte in stream.bytes() {
-//         if let Ok(byte) = byte {
-//             if prev_byte == b'\r' && byte == b'\n' {
-//                 println!(
-//                     "[TCP] Recieved part: {:?}",
-//                     std::str::from_utf8(&buf).unwrap_or("<...>")
-//                 );
-//                 buf.clear();
-//             } else {
-//                 buf.push(byte);
-//             }
+impl Message {
+    fn write_to<W: Write>(self, writer: &mut W) -> std::io::Result<()> {
+        match self {
+            Message::Array(Some(items)) => {
+                // Array with elements
+                write!(writer, "*{}\r\n", items.len())?;
+                for item in items {
+                    item.write_to(writer)?;
+                }
+            }
+            Message::Array(None) => {
+                // Null Array
+                write!(writer, "*-1\r\n")?;
+            }
+            Message::BulkString(Some(data)) => {
+                // Bulk String with data
+                write!(writer, "${}\r\n", data.len())?;
+                writer.write_all(&data)?;
+                write!(writer, "\r\n")?;
+            }
+            Message::BulkString(None) => {
+                // Null Bulk String
+                write!(writer, "$-1\r\n")?;
+            }
+            Message::SimpleString(value) => {
+                // Simple String
+                write!(writer, "+{}\r\n", value)?;
+            }
+            Message::Error(error_message) => {
+                // Error
+                write!(writer, "-{}\r\n", error_message)?;
+            }
+            Message::Integer(value) => {
+                // Integer
+                write!(writer, ":{}\r\n", value)?;
+            }
+        }
+        Ok(())
+    }
+}
 
-//             prev_byte = byte;
-//         } else {
-//             println!("[TCP] Failed to read byte");
-//         }
-//     }
-//     println!("[TCP] Connection closed");
-// }
+fn process_resp_message(message: Message) -> Option<Message> {
+    match message {
+        Message::Array(Some(items)) => {
+            if items.len() == 1 {
+                let item = &items[0];
+                println!("Received single item command: {:?}", item);
+                match item {
+                    Message::BulkString(Some(content)) => {
+                        if content == "PING".to_string().as_bytes() {
+                            return Some(Message::array(vec![Message::bulk_string("PONG") ]));
+                        } else {
+                            println!("Unprocessable command: {:?}", content);
+                        }
+                    }
+                    _ => {
+                        println!("Unprocessable entity: {:?}", item);
+                    }
+                }
+            }
+            if items.len() == 2 {
+                let item = &items[0];
+                println!("Received two item command: {:?}", item);
+                match item {
+                    Message::BulkString(Some(content)) => {
+                        if content == "ECHO".to_string().as_bytes() {
+                            if let Message::BulkString(text) = &items[1] {
+                                return Some(Message::array(vec![Message::BulkString(text.clone()) ]));
+                            } else {
+                                println!("Unprocessable second item: {:?}", &items[1]);
+                            }
+                        } else {
+                            println!("Unprocessable command: {:?}", content);
+                        }
+                    }
+                    _ => {
+                        println!("Unprocessable entity: {:?}", item);
+                    }
+                }
+            }
+        }
+        _ => {
+            println!("Unprocessable message: {:?}", message);
+        }
+    };
+    None
+}
+
+fn handle_client(stream: &mut TcpStream) {
+    let mut parser = MessageParser::new();
+    let mut writer_stream = stream.try_clone().unwrap();
+    for byte in stream.bytes() {
+        if let Ok(byte) = byte {
+            if let Ok(Some(message)) = parser.add_byte(byte) {
+                println!("Received message: {:?}", message);
+                if let Some(response) = process_resp_message(message) {
+                    response.write_to(&mut writer_stream).unwrap();
+                }
+            }
+        } else {
+            println!("[TCP] Failed to read byte");
+        }
+    }
+    println!("[TCP] Connection closed");
+}
 
 fn main() -> std::io::Result<()> {
-    //     let listener = TcpListener::bind("127.0.0.1:6379")?;
+    let listener = TcpListener::bind("127.0.0.1:6379")?;
 
-    //     for stream in listener.incoming() {
-    //         println!("[TCP] Stream opened");
-    //         let mut str = stream.unwrap();
-    //         handle_client(&mut str);
-    //     }
+    for stream in listener.incoming() {
+        println!("[TCP] Stream opened");
+        let mut str = stream.unwrap();
+        handle_client(&mut str);
+    }
     Ok(())
 }
 
@@ -280,7 +382,7 @@ mod tests {
 
     fn parse_string(string: &str) -> Message {
         let mut parser = MessageParser::new();
-        let mut message : Option<Message> = None;
+        let mut message: Option<Message> = None;
         for (i, byte) in string.as_bytes().iter().enumerate() {
             message = parser.add_byte(*byte).unwrap();
 
