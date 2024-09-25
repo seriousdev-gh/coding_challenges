@@ -1,5 +1,5 @@
 use std::{
-    env, io::Read, net::{TcpListener, TcpStream}, sync::{atomic::{self, AtomicBool, Ordering}, Arc, RwLock}
+    env, io::{BufReader, BufWriter, Read, Write}, net::{TcpListener, TcpStream}, sync::{atomic::{self, AtomicBool, Ordering}, Arc, RwLock}
 };
 
 mod resp;
@@ -39,15 +39,17 @@ fn set_globals() {
 fn handle_client(stream: &mut TcpStream, memory: SharedMemory) {
     println!("[TCP] Client connected");
     let mut parser = MessageParser::new();
-    let mut writer_stream = stream.try_clone().unwrap();
-    for byte in stream.bytes() {
+    let mut writer_stream = BufWriter::new(stream.try_clone().unwrap());
+    for byte in BufReader::new(stream).bytes() {
         if let Ok(byte) = byte {
             match parser.add_byte(byte) {
                 Ok(Some(message)) => {
                     debug(&format!("Received request: {:?}", message));
                     let response = process_resp_message(&message, memory.clone());
                     debug(&format!("Sending response: {:?}", response));
+                    // TODO: handle errors
                     response.write_to(&mut writer_stream).unwrap();
+                    writer_stream.flush().unwrap();
                 },
                 Err(err) => {
                     println!("[Parser] Failed to parse byte [{}]", err);
