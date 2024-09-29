@@ -1,5 +1,7 @@
 use std::io::Write;
 
+use crate::processing_error::ProcessingError;
+
 #[derive(Debug, PartialEq)]
 pub enum Message {
     Array(Option<Vec<Message>>),
@@ -26,53 +28,77 @@ impl Message {
         Message::Array(Some(messages))
     }
 
-    pub fn is_array(&self) -> bool {
+    pub fn type_as_str(&self) -> &str {
         match self {
-            Self::Array(_) => true,
-            _ => false
+            Message::Array(_) => "Array",
+            Message::BulkString(_) => "BulkString",
+            Message::SimpleString(_) => "SimpleString",
+            Message::Integer(_) => "Integer",
+            Message::Error(_) => "Error",
+        }
+    }
+
+    pub fn as_str(&self) -> Result<&str, ProcessingError> {
+        match self {
+            Self::BulkString(Some(content)) => {  
+                let text = std::str::from_utf8(content).map_err(|_| ProcessingError::InvalidUtf8)?;
+                Ok(text)
+            },
+            Self::BulkString(None) => {  
+                Err(ProcessingError::Other("Expected bulk string to contain something".to_string()))
+            },
+            Self::SimpleString(content) => {  
+                Ok(content)
+            },
+            _ => {
+                Err(ProcessingError::Other(format!("Invalid message type {} expected BulkString or SimpleString", self.type_as_str())))
+            }
+        }
+    }
+
+    pub fn as_int(&self) -> Result<i64, ProcessingError> {
+        match self {
+            Self::Integer(content) => {  
+                Ok(*content)
+            },
+            _ => {
+                Err(ProcessingError::Other(format!("Invalid message type {} expected Integer", self.type_as_str())))
+            }
         }
     }
 
     pub fn write_to<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
         match self {
             Message::Array(Some(items)) => {
-                // Array with elements
                 write!(writer, "*{}\r\n", items.len())?;
                 for item in items {
                     item.write_to(writer)?;
                 }
             }
             Message::Array(None) => {
-                // Null Array
                 write!(writer, "*-1\r\n")?;
             }
             Message::BulkString(Some(data)) => {
-                // Bulk String with data
                 write!(writer, "${}\r\n", data.len())?;
                 writer.write_all(&data)?;
                 write!(writer, "\r\n")?;
             }
             Message::BulkString(None) => {
-                // Null Bulk String
                 write!(writer, "$-1\r\n")?;
             }
             Message::SimpleString(value) => {
-                // Simple String
                 write!(writer, "+{}\r\n", value)?;
             }
             Message::Error(error_message) => {
-                // Error
                 write!(writer, "-{}\r\n", error_message)?;
             }
             Message::Integer(value) => {
-                // Integer
                 write!(writer, ":{}\r\n", value)?;
             }
         }
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod tests {

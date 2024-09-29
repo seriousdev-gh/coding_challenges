@@ -3,11 +3,13 @@ use std::{
 };
 
 mod resp;
-use resp::{message::Message, message_parser::MessageParser};
+mod message_processor;
+use message_processor::{process_resp_message, KeyExpiration, SharedMemory};
+mod processing_error;
+use resp::message_parser::MessageParser;
 
 use std::collections::HashMap;
 
-type SharedMemory = Arc<RwLock<HashMap<String, String>>>;
 
 static DEBUG: AtomicBool = AtomicBool::new(false);
 
@@ -15,13 +17,15 @@ fn main() -> std::io::Result<()> {
     set_globals();
 
     let memory: SharedMemory = Arc::new(RwLock::new(HashMap::new()));
+    let key_expiration: KeyExpiration = Arc::new(RwLock::new(HashMap::new()));
     let listener = TcpListener::bind("127.0.0.1:6379")?;
 
     for stream in listener.incoming() {
         let memory = memory.clone();
+        let key_expiration = key_expiration.clone();
         std::thread::spawn(move || {
             match stream {
-                Ok(mut str) => handle_client(&mut str, memory),
+                Ok(mut str) => handle_client(&mut str, memory, key_expiration),
                 Err(e) => eprintln!("[TCP] Error accepting connection: {}", e),
             }
         });
@@ -36,7 +40,7 @@ fn set_globals() {
     DEBUG.store(is_debug, Ordering::Relaxed);
 }
 
-fn handle_client(stream: &mut TcpStream, memory: SharedMemory) {
+fn handle_client(stream: &mut TcpStream, memory: SharedMemory, key_expiration: KeyExpiration) {
     println!("[TCP] Client connected");
     let mut parser = MessageParser::new();
     let mut writer_stream = BufWriter::new(stream.try_clone().unwrap());
@@ -45,7 +49,7 @@ fn handle_client(stream: &mut TcpStream, memory: SharedMemory) {
             match parser.add_byte(byte) {
                 Ok(Some(message)) => {
                     debug(&format!("Received request: {:?}", message));
-                    let response = process_resp_message(&message, memory.clone());
+                    let response = process_resp_message(&message, memory.clone(), key_expiration.clone());
                     debug(&format!("Sending response: {:?}", response));
                     // TODO: handle errors
                     response.write_to(&mut writer_stream).unwrap();
@@ -61,101 +65,6 @@ fn handle_client(stream: &mut TcpStream, memory: SharedMemory) {
         }
     }
     println!("[TCP] Connection closed");
-}
-
-fn process_resp_message(message: &Message, memory: SharedMemory) -> Message {
-    match message {
-        Message::Array(Some(items)) => match process_resp_command(&items, memory) {
-            Ok(response) => response,
-            Err(err_text) => Message::Error(err_text),
-        },
-        _ => {
-            println!("Unprocessable message: {:?}", message);
-            Message::Error("Unprocessable message".to_string())
-        }
-    }
-}
-
-fn process_resp_command(parts: &Vec<Message>, memory: SharedMemory) -> Result<Message, String> {
-    let parts_strings = messages_to_strings(parts)?;
-
-    let (&command, args) = split_to_command_args(&parts_strings)?;
-
-    match command.to_lowercase().as_str() {
-        "ping" => Ok(command_ping()),
-        "echo" => command_echo(args),
-        "set" => command_set(args, memory),
-        "get" => command_get(args, memory),
-        _ => Err("Expected command".to_string())
-    }    
-}
-
-fn command_ping() -> Message {
-    Message::simple_string("PONG")
-}
-
-fn command_echo(args: &[&str]) -> Result<Message, String> {
-    if args.len() != 1 {
-        return Err(format!("[echo] expected 1 argument but got {}", args.len()).to_string());
-    }
-    let &argument_text = args.first().unwrap();
-
-    Ok(Message::bulk_string(argument_text))
-}
-
-fn command_set(args: &[&str], memory: SharedMemory) -> Result<Message, String> {
-    if args.len() != 2 {
-        return Err(format!("[set] expected 2 arguments but got {}", args.len()).to_string());
-    }
-
-    let key = *args.get(0).unwrap();
-    let value = *args.get(1).unwrap();
-
-    let mut memory_lock = memory.write().expect("Memory lock poisoned");
-    memory_lock.insert(key.to_string(), value.to_string());
-
-    Ok(Message::simple_string("OK"))
-}
-
-fn command_get(args: &[&str], memory: SharedMemory) -> Result<Message, String> {
-    if args.len() != 1 {
-        return Err(format!("[get] expected 1 argument but got {}", args.len()).to_string());
-    }
-
-    let key = *args.first().unwrap();
-
-    let memory_lock = memory.read().expect("Memory lock poisoned");
-    let value = memory_lock.get(key);
-
-    if let Some(value) = value {
-        Ok(Message::bulk_string(value))
-    } else {
-        Ok(Message::BulkString(None))
-    }
-}
-
-fn messages_to_strings(parts: &Vec<Message>) -> Result<Vec<&str>, String> {
-    let mut result: Vec<&str> = Vec::new();
-    for message in parts {
-        result.push(bulk_as_text(message)?);
-    }
-    Ok(result)
-}
-
-fn bulk_as_text(message: &Message) -> Result<&str, String> {
-    match message {
-        Message::BulkString(Some(content)) => {
-            std::str::from_utf8(content).map_err(|_| "Invalid utf8".to_string())
-        },
-        _ => Err("Expected bulk string".to_string()),
-    }
-}
-
-fn split_to_command_args<T>(vec: &[T]) -> Result<(&T, &[T]), String> {
-    match vec.split_first() {
-        Some((head, tail)) => Ok((head, tail)),
-        None => Err(String::from("Vector is empty"))
-    }
 }
 
 fn debug(log: &str) {
