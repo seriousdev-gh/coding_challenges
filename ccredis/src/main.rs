@@ -1,5 +1,5 @@
 use std::{
-    env, io::{BufReader, BufWriter, Read, Write}, net::{TcpListener, TcpStream}, sync::{atomic::{self, AtomicBool, Ordering}, Arc, RwLock}
+    env, io::{BufReader, BufWriter, Read, Write}, net::{TcpListener, TcpStream}, sync::{atomic::{self, AtomicBool, Ordering}, Arc, RwLock}, thread, time
 };
 
 mod resp;
@@ -9,9 +9,13 @@ mod processing_error;
 use resp::message_parser::MessageParser;
 
 use std::collections::HashMap;
-
+use rand::seq::IteratorRandom;
+use rand::thread_rng;
 
 static DEBUG: AtomicBool = AtomicBool::new(false);
+
+const AMOUNT_OF_KEYS_CHECKED_FOR_EXPIRATION: usize = 8;
+const AMOUNT_OF_MILLISECONDS_BETWEEN_EXPIRATION_CHECKS: u64 = 1000;
 
 fn main() -> std::io::Result<()> {
     set_globals();
@@ -19,6 +23,14 @@ fn main() -> std::io::Result<()> {
     let memory: SharedMemory = Arc::new(RwLock::new(HashMap::new()));
     let key_expiration: KeyExpiration = Arc::new(RwLock::new(HashMap::new()));
     let listener = TcpListener::bind("127.0.0.1:6379")?;
+
+    {
+        let memory = memory.clone();
+        let key_expiration = key_expiration.clone();
+        thread::spawn(move || {
+            key_expirer_worker(memory.clone(), key_expiration.clone());
+        });
+    }
 
     for stream in listener.incoming() {
         let memory = memory.clone();
@@ -65,6 +77,34 @@ fn handle_client(stream: &mut TcpStream, memory: SharedMemory, key_expiration: K
         }
     }
     println!("[TCP] Connection closed");
+}
+
+// TODO: needs testing
+fn key_expirer_worker(memory: SharedMemory, key_expiration: KeyExpiration) {
+    let interval = time::Duration::from_millis(AMOUNT_OF_MILLISECONDS_BETWEEN_EXPIRATION_CHECKS);
+    let mut rng = thread_rng();
+    loop {
+        let expiration_read_lock = key_expiration.read().unwrap();
+        let current_timestamp = message_processor::now();
+        let mut keys_to_remove: Vec<&str> = Vec::new();
+
+        for (key, timestamp) in expiration_read_lock.iter().choose_multiple(&mut rng, AMOUNT_OF_KEYS_CHECKED_FOR_EXPIRATION) {
+            if current_timestamp > *timestamp {
+                keys_to_remove.push(key);
+            }
+        }
+
+        if keys_to_remove.len() > 0 {
+            let mut expiration_write_lock = key_expiration.write().unwrap();
+            let mut memory_write_lock = memory.write().unwrap();
+            for key in keys_to_remove {
+                expiration_write_lock.remove(key);
+                memory_write_lock.remove(key);
+            }
+        }
+
+        thread::sleep(interval);
+    }
 }
 
 fn debug(log: &str) {

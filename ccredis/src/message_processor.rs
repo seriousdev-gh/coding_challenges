@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::{Arc, RwLock}};
+use std::{cell::Cell, collections::HashMap, sync::{Arc, RwLock}};
 
 use crate::{processing_error::ProcessingError, resp::message::Message};
 
@@ -20,8 +20,6 @@ pub fn process_resp_message(message: &Message, memory: SharedMemory, key_expirat
 }
 
 fn process_resp_command(parts: &Vec<Message>, memory: SharedMemory, key_expiration: KeyExpiration) -> Result<Message, ProcessingError> {
-    // let parts_strings = messages_to_strings(parts)?;
-
     let (command, args) = split_to_command_args(&parts)?;
 
     match command.as_str()?.to_lowercase().as_str() {
@@ -60,12 +58,10 @@ fn command_set(args: &[Message], memory: SharedMemory, key_expiration: KeyExpira
 
         match expire_type.as_str()?.to_lowercase().as_str() {
             "ex" => {
-                let now = std::time::UNIX_EPOCH.elapsed().unwrap().as_millis();
-                expire_timestamp = Some(now as u128 + (expire_value_parsed as u128) * 1000);
+                expire_timestamp = Some(now() + (expire_value_parsed as u128) * 1000);
             },
             "px" => {
-                let now = std::time::UNIX_EPOCH.elapsed().unwrap().as_millis();
-                expire_timestamp = Some(now + expire_value_parsed as u128);
+                expire_timestamp = Some(now() + expire_value_parsed as u128);
             },
             "exat" => {
                 expire_timestamp = Some(expire_value_parsed as u128 * 1000);
@@ -98,9 +94,8 @@ fn command_get(args: &[Message], memory: SharedMemory, key_expiration: KeyExpira
     
     if let Some(&key_timestamp) = key_timestamp {
         drop(key_expiration_read_lock);
-        let now = std::time::UNIX_EPOCH.elapsed().unwrap().as_millis();
-        if now > key_timestamp {
-            println!("Removing timestamp: now: {}, {}", now, key_timestamp);
+        if now() > key_timestamp {
+            println!("Removing timestamp: now: {}, {}", now(), key_timestamp);
             key_expiration
                 .write()
                 .expect("Memory lock poisoned")
@@ -130,9 +125,27 @@ fn split_to_command_args<T>(vec: &[T]) -> Result<(&T, &[T]), ProcessingError> {
     }
 }
 
+#[cfg(not(test))]
+pub fn now() -> u128 {
+    std::time::UNIX_EPOCH.elapsed().unwrap().as_millis()
+}
+
+#[cfg(test)]
+pub fn now() -> u128 {
+    TIMESTAMP.with(|timestamp| timestamp.get() )
+}
+
+thread_local! {
+    static TIMESTAMP: Cell<u128> = const { Cell::new(0) };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    pub fn travel_to(timestamp: u128) {
+        TIMESTAMP.with(|ts| ts.set(timestamp));
+    }
 
     #[test]
     fn message_ping() {
@@ -144,5 +157,61 @@ mod tests {
             response,
             Message::simple_string("PONG")
         );
+    }
+
+    #[test]
+    fn message_set() {
+        let memory: SharedMemory = Arc::new(RwLock::new(HashMap::new()));
+        let expires: KeyExpiration = Arc::new(RwLock::new(HashMap::new()));
+        let request = Message::array(vec![
+            Message::bulk_string("set"),
+            Message::bulk_string("test_key"),
+            Message::bulk_string("test_value")
+        ]);
+        let response = process_resp_message(&request, memory.clone(), expires.clone());
+        assert_eq!(response, Message::simple_string("OK"));
+        assert_eq!(memory.clone().read().unwrap().get("test_key").unwrap(), "test_value");
+    }
+
+    #[test]
+    fn message_set_ex_get() {
+        // Setup
+        let test_timestamp = std::time::UNIX_EPOCH.elapsed().unwrap().as_millis();
+        travel_to(test_timestamp);
+        let memory: SharedMemory = Arc::new(RwLock::new(HashMap::new()));
+        let expires: KeyExpiration = Arc::new(RwLock::new(HashMap::new()));
+
+        // Set value with expiration
+        let request = Message::array(vec![
+            Message::bulk_string("set"),
+            Message::bulk_string("test_key"),
+            Message::bulk_string("test_value"),
+            Message::bulk_string("ex"),
+            Message::bulk_string("30")
+        ]);
+        let response = process_resp_message(&request, memory.clone(), expires.clone());
+        assert_eq!(response, Message::simple_string("OK"));
+
+        // Get value before expiration
+        travel_to(test_timestamp + 29_000);
+        let request = Message::array(vec![
+            Message::bulk_string("get"),
+            Message::bulk_string("test_key")
+        ]);
+        let response = process_resp_message(&request, memory.clone(), expires.clone());
+        assert_eq!(response, Message::bulk_string("test_value"));
+
+        // Get value after expiration
+        travel_to(test_timestamp + 31_000);
+        let request = Message::array(vec![
+            Message::bulk_string("get"),
+            Message::bulk_string("test_key")
+        ]);
+        let response = process_resp_message(&request, memory.clone(), expires.clone());
+        assert_eq!(response, Message::BulkString(None));
+
+        // memory is cleared after expire
+        assert_eq!(memory.clone().read().unwrap().len(), 0);
+        assert_eq!(expires.clone().read().unwrap().len(), 0);
     }
 }
