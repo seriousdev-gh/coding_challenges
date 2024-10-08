@@ -95,7 +95,6 @@ fn command_get(args: &[Message], memory: SharedMemory, key_expiration: KeyExpira
     if let Some(&key_timestamp) = key_timestamp {
         drop(key_expiration_read_lock);
         if now() > key_timestamp {
-            println!("Removing timestamp: now: {}, {}", now(), key_timestamp);
             key_expiration
                 .write()
                 .expect("Memory lock poisoned")
@@ -174,10 +173,58 @@ mod tests {
     }
 
     #[test]
-    fn message_set_ex_get() {
+    fn test_expiration_options_ex() {
+        let init_timestamp = std::time::UNIX_EPOCH.elapsed().unwrap().as_millis();
+        message_set_get_with_options(
+            "ex", 
+            "30", 
+            init_timestamp, 
+            init_timestamp + 29_000, 
+            init_timestamp + 31_000
+        );
+    }
+
+    #[test]
+    fn test_expiration_options_px() {
+        let init_timestamp = std::time::UNIX_EPOCH.elapsed().unwrap().as_millis();
+        message_set_get_with_options(
+            "px", 
+            "30000", 
+            init_timestamp, 
+            init_timestamp + 29_000, 
+            init_timestamp + 31_000
+        );
+    }
+
+    #[test]
+    fn test_expiration_options_exat() {
+        let init_timestamp = std::time::UNIX_EPOCH.elapsed().unwrap().as_millis();
+        let expire_at_timestamp_in_seconds = ((init_timestamp + 30_000) / 1000).to_string();
+        message_set_get_with_options(
+            "exat", 
+            &expire_at_timestamp_in_seconds, 
+            init_timestamp, 
+            init_timestamp + 29_000, 
+            init_timestamp + 31_000
+        );
+    }
+
+    #[test]
+    fn test_expiration_options_pxat() {
+        let init_timestamp = std::time::UNIX_EPOCH.elapsed().unwrap().as_millis();
+        let expire_at_timestamp_in_milliseconds = (init_timestamp + 30_000).to_string();
+        message_set_get_with_options(
+            "pxat",  
+            &expire_at_timestamp_in_milliseconds, 
+            init_timestamp, 
+            init_timestamp + 29_000, 
+            init_timestamp + 31_000
+        );
+    }
+
+    fn message_set_get_with_options(option_name: &str, option_value: &str, init_timestamp: u128, before_timestamp: u128, after_timestamp: u128) {
         // Setup
-        let test_timestamp = std::time::UNIX_EPOCH.elapsed().unwrap().as_millis();
-        travel_to(test_timestamp);
+        travel_to(init_timestamp);
         let memory: SharedMemory = Arc::new(RwLock::new(HashMap::new()));
         let expires: KeyExpiration = Arc::new(RwLock::new(HashMap::new()));
 
@@ -186,14 +233,14 @@ mod tests {
             Message::bulk_string("set"),
             Message::bulk_string("test_key"),
             Message::bulk_string("test_value"),
-            Message::bulk_string("ex"),
-            Message::bulk_string("30")
+            Message::bulk_string(option_name),
+            Message::bulk_string(option_value)
         ]);
         let response = process_resp_message(&request, memory.clone(), expires.clone());
         assert_eq!(response, Message::simple_string("OK"));
 
         // Get value before expiration
-        travel_to(test_timestamp + 29_000);
+        travel_to(before_timestamp);
         let request = Message::array(vec![
             Message::bulk_string("get"),
             Message::bulk_string("test_key")
@@ -202,7 +249,7 @@ mod tests {
         assert_eq!(response, Message::bulk_string("test_value"));
 
         // Get value after expiration
-        travel_to(test_timestamp + 31_000);
+        travel_to(after_timestamp);
         let request = Message::array(vec![
             Message::bulk_string("get"),
             Message::bulk_string("test_key")
