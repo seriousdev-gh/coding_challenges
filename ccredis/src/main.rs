@@ -4,7 +4,7 @@ use std::{
 
 mod resp;
 mod message_processor;
-use message_processor::{process_resp_message, KeyExpiration, SharedMemory};
+use message_processor::{MessageProcessor, KeyExpiration, SharedMemory};
 mod processing_error;
 use resp::message_parser::MessageParser;
 
@@ -55,13 +55,14 @@ fn set_globals() {
 fn handle_client(stream: &mut TcpStream, memory: SharedMemory, key_expiration: KeyExpiration) {
     println!("[TCP] Client connected");
     let mut parser = MessageParser::new();
+    let message_processor = MessageProcessor { memory, key_expiration };
     let mut writer_stream = BufWriter::new(stream.try_clone().unwrap());
     for byte in BufReader::new(stream).bytes() {
         if let Ok(byte) = byte {
             match parser.add_byte(byte) {
                 Ok(Some(message)) => {
                     debug(&format!("Received request: {:?}", message));
-                    let response = process_resp_message(&message, memory.clone(), key_expiration.clone());
+                    let response = message_processor.process_resp_message(&message);
                     debug(&format!("Sending response: {:?}", response));
                     // TODO: handle errors
                     response.write_to(&mut writer_stream).unwrap();

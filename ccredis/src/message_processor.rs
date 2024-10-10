@@ -6,114 +6,217 @@ pub type SharedMemory = Arc<RwLock<HashMap<String, String>>>;
 pub type KeyExpiration = Arc<RwLock<HashMap<String, u128>>>;
 
 
-pub fn process_resp_message(message: &Message, memory: SharedMemory, key_expiration: KeyExpiration) -> Message {
-    match message {
-        Message::Array(Some(items)) => match process_resp_command(&items, memory, key_expiration) {
-            Ok(response) => response,
-            Err(err_text) => Message::Error(err_text.to_string()),
-        },
-        _ => {
-            println!("Unprocessable message: {:?}", message);
-            Message::Error("Unprocessable message".to_string())
-        }
-    }
+pub struct MessageProcessor {
+    pub memory: SharedMemory, 
+    pub key_expiration: KeyExpiration
 }
 
-fn process_resp_command(parts: &Vec<Message>, memory: SharedMemory, key_expiration: KeyExpiration) -> Result<Message, ProcessingError> {
-    let (command, args) = split_to_command_args(&parts)?;
-
-    match command.as_str()?.to_lowercase().as_str() {
-        "ping" => Ok(command_ping()),
-        "echo" => command_echo(args),
-        "set" => command_set(args, memory, key_expiration),
-        "get" => command_get(args, memory, key_expiration),
-        _ => Err(ProcessingError::from("Expected command"))
-    }    
-}
-
-fn command_ping() -> Message {
-    Message::simple_string("PONG")
-}
-
-fn command_echo(args: &[Message]) -> Result<Message, ProcessingError> {
-    if args.len() != 1 {
-        return Err(ProcessingError::from(format!("[echo] expected 1 argument but got {}", args.len())));
-    }
-    let argument_text = args.first().unwrap().as_str()?;
-
-    Ok(Message::bulk_string(argument_text))
-}
-
-fn command_set(args: &[Message], memory: SharedMemory, key_expiration: KeyExpiration) -> Result<Message, ProcessingError> {
-    let key = args.get(0).ok_or("[set] expected key")?.as_str()?;
-    let value = args.get(1).ok_or("[set] expected value")?.as_str()?;
-    let expire_type = args.get(2);
-    let expire_value = args.get(3);
-
-    let mut expire_timestamp: Option<u128> = None;
-
-    if let Some(expire_type) = expire_type {
-        let expire_value_str = expire_value.ok_or("[set] expected value when using expire")?.as_str()?;
-        let expire_value_parsed: u128 = expire_value_str.parse().map_err(|_| ProcessingError::InvalidInteger)?;
-
-        match expire_type.as_str()?.to_lowercase().as_str() {
-            "ex" => {
-                expire_timestamp = Some(now() + (expire_value_parsed as u128) * 1000);
+impl MessageProcessor {
+    pub fn process_resp_message(&self, message: &Message) -> Message {
+        match message {
+            Message::Array(Some(items)) => match self.process_resp_command(items) {
+                Ok(response) => response,
+                Err(err_text) => Message::Error(err_text.to_string()),
             },
-            "px" => {
-                expire_timestamp = Some(now() + expire_value_parsed as u128);
-            },
-            "exat" => {
-                expire_timestamp = Some(expire_value_parsed as u128 * 1000);
-            },
-            "pxat" => {
-                expire_timestamp = Some(expire_value_parsed as u128);
-            },
-            arg => {
-                return Err(ProcessingError::from(format!("[set] unsupported arg: {}", arg)));
+            _ => {
+                println!("Unprocessable message: {:?}", message);
+                Message::Error("Unprocessable message".to_string())
             }
         }
     }
 
-    let mut memory_lock = memory.write().expect("Memory lock poisoned");
-    memory_lock.insert(key.to_string(), value.to_string());
-    
-    if let Some(expire_timestamp) = expire_timestamp {
-        let mut key_expiration_lock = key_expiration.write().expect("Memory lock poisoned");
-        key_expiration_lock.insert(key.to_string(), expire_timestamp);
+    fn process_resp_command(&self, parts: &Vec<Message>) -> Result<Message, ProcessingError> {
+        let (command, args) = split_to_command_args(&parts)?;
+
+        match command.as_str()?.to_lowercase().as_str() {
+            "ping" => Ok(self.command_ping()),
+            "echo" => self.command_echo(args),
+            "set" => self.command_set(args),
+            "get" => self.command_get(args),
+            "exists" => self.command_exists(args),
+            "del" => self.command_del(args),
+            "incr" => self.command_incr(args),
+            "decr" => self.command_decr(args),
+            _ => Err(ProcessingError::from("Expected command"))
+        }    
     }
 
-    Ok(Message::simple_string("OK"))
-}
+    fn command_ping(&self) -> Message {
+        Message::simple_string("PONG")
+    }
 
-fn command_get(args: &[Message], memory: SharedMemory, key_expiration: KeyExpiration) -> Result<Message, ProcessingError> {
-    let key = args.get(0).ok_or("[set] expected key")?.as_str()?;
+    fn command_echo(&self, args: &[Message]) -> Result<Message, ProcessingError> {
+        if args.len() != 1 {
+            return Err(ProcessingError::from(format!("[echo] expected 1 argument but got {}", args.len())));
+        }
+        let argument_text = args.first().unwrap().as_str()?;
 
-    let key_expiration_read_lock = key_expiration.read().expect("Memory lock poisoned");
-    let key_timestamp = key_expiration_read_lock.get(key);
-    
-    if let Some(&key_timestamp) = key_timestamp {
-        drop(key_expiration_read_lock);
-        if now() > key_timestamp {
-            key_expiration
-                .write()
-                .expect("Memory lock poisoned")
-                .remove(key);
-            memory
-                .write()
-                .expect("Memory lock poisoned")
-                .remove(key);
+        Ok(Message::bulk_string(argument_text))
+    }
+
+    fn command_set(&self, args: &[Message]) -> Result<Message, ProcessingError> {
+        let key = args.get(0).ok_or("[set] expected key")?.as_str()?;
+        let value = args.get(1).ok_or("[set] expected value")?.as_str()?;
+        let expire_type = args.get(2);
+        let expire_value = args.get(3);
+
+        let mut expire_timestamp: Option<u128> = None;
+
+        if let Some(expire_type) = expire_type {
+            let expire_value_str = expire_value.ok_or("[set] expected value when using expire")?.as_str()?;
+            let expire_value_parsed: u128 = expire_value_str.parse().map_err(|_| ProcessingError::InvalidInteger)?;
+
+            match expire_type.as_str()?.to_lowercase().as_str() {
+                "ex" => {
+                    expire_timestamp = Some(now() + (expire_value_parsed as u128) * 1000);
+                },
+                "px" => {
+                    expire_timestamp = Some(now() + expire_value_parsed as u128);
+                },
+                "exat" => {
+                    expire_timestamp = Some(expire_value_parsed as u128 * 1000);
+                },
+                "pxat" => {
+                    expire_timestamp = Some(expire_value_parsed as u128);
+                },
+                arg => {
+                    return Err(ProcessingError::from(format!("[set] unsupported arg: {}", arg)));
+                }
+            }
+        }
+
+        self.insert(key, value, expire_timestamp);
+
+        Ok(Message::simple_string("OK"))
+    }
+
+    fn command_get(&self, args: &[Message]) -> Result<Message, ProcessingError> {
+        let key = args.get(0).ok_or("[set] expected key")?.as_str()?;
+
+        if !self.check_expiration(key) {
             return Ok(Message::BulkString(None));
+        }
+
+        let memory_read_lock = self.memory.read().expect("Memory lock poisoned");
+        let value = memory_read_lock.get(key);
+
+        if let Some(value) = value {
+            Ok(Message::bulk_string(value))
+        } else {
+            Ok(Message::BulkString(None))
         }
     }
 
-    let memory_read_lock = memory.read().expect("Memory lock poisoned");
-    let value = memory_read_lock.get(key);
+    fn command_exists(&self, args: &[Message]) -> Result<Message, ProcessingError> {
+        let mut count = 0;
+        for arg in args {
+            let key = arg.as_str()?;
 
-    if let Some(value) = value {
-        Ok(Message::bulk_string(value))
-    } else {
-        Ok(Message::BulkString(None))
+            if !self.check_expiration(key) {
+                continue;
+            }
+
+            let memory_read_lock = self.memory.read().expect("Memory lock poisoned");
+            if memory_read_lock.contains_key(key) {
+                count += 1;
+            }
+        }
+        Ok(Message::Integer(count))
+    }
+
+    fn command_del(&self, args: &[Message]) -> Result<Message, ProcessingError> {
+        let mut removed = 0;
+        for arg in args {
+            let key = arg.as_str()?;
+
+            if self.remove(key) {
+                removed += 1;
+            }
+        }
+        Ok(Message::Integer(removed))
+    }
+
+    fn command_incr(&self, args: &[Message]) -> Result<Message, ProcessingError> {
+        let key = args.get(0).ok_or("[incr] expected key")?.as_str()?;
+
+        if !self.check_expiration(key) {
+            return Ok(Message::BulkString(None));
+        }
+
+        let mut memory_write_lock = self.memory.write().expect("Memory lock poisoned");
+        let counter = memory_write_lock.entry(key.to_string()).or_insert("0".to_string());
+        let integer = counter.parse::<i64>().map_err(|_| ProcessingError::InvalidInteger)? + 1;
+        *counter = integer.to_string();
+
+        Ok(Message::Integer(integer))
+    }
+    
+    fn command_decr(&self, args: &[Message]) -> Result<Message, ProcessingError> {
+        let key = args.get(0).ok_or("[decr] expected key")?.as_str()?;
+
+        if !self.check_expiration(key) {
+            return Ok(Message::BulkString(None));
+        }
+
+        let mut memory_write_lock = self.memory.write().expect("Memory lock poisoned");
+        let counter = memory_write_lock.entry(key.to_string()).or_insert("0".to_string());
+        let integer = counter.parse::<i64>().map_err(|_| ProcessingError::InvalidInteger)? - 1;
+        *counter = integer.to_string();
+
+        Ok(Message::Integer(integer))
+    }
+
+    fn insert(&self, key: &str, value: &str, expire_at: Option<u128>) {
+        let mut memory_lock = self.memory.write().expect("Memory lock poisoned");
+        memory_lock.insert(key.to_string(), value.to_string());
+        
+        let mut key_expiration_lock = self.key_expiration.write().expect("Memory lock poisoned");
+        if let Some(expire_timestamp) = expire_at {
+            key_expiration_lock.insert(key.to_string(), expire_timestamp);
+        } else {
+            key_expiration_lock.remove(key);
+        }
+    }
+
+    // fn fetch(&self, key: &str) -> Option<String> {
+    //     if !self.check_expiration(key) {
+    //         return None;
+    //     }
+
+    //     let memory_read_lock = self.memory.read().expect("Memory lock poisoned");
+    //     memory_read_lock.get(key)
+    // }
+    
+    fn remove(&self, key: &str) -> bool {
+        let mut existed = false;
+        
+        if self.memory
+            .write()
+            .expect("Memory lock poisoned")
+            .remove(key)
+            .is_some() {
+                existed = true;
+            };
+        self.key_expiration
+            .write()
+            .expect("Memory lock poisoned")
+            .remove(key);
+
+        existed
+    }
+
+    fn check_expiration(&self, key: &str) -> bool {
+        let key_expiration_read_lock = self.key_expiration.read().expect("Memory lock poisoned");
+        let key_timestamp = key_expiration_read_lock.get(key);
+        
+        if let Some(&key_timestamp) = key_timestamp {
+            drop(key_expiration_read_lock);
+            if now() > key_timestamp {
+                self.remove(key);
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -146,12 +249,17 @@ mod tests {
         TIMESTAMP.with(|ts| ts.set(timestamp));
     }
 
+    fn create_message_processor() -> MessageProcessor {
+        let memory: SharedMemory = Arc::new(RwLock::new(HashMap::new()));
+        let key_expiration: KeyExpiration = Arc::new(RwLock::new(HashMap::new()));
+        MessageProcessor { memory, key_expiration }
+    }
+
     #[test]
     fn message_ping() {
-        let memory: SharedMemory = Arc::new(RwLock::new(HashMap::new()));
-        let expires: KeyExpiration = Arc::new(RwLock::new(HashMap::new()));
-        let request = Message::array(vec![Message::bulk_string("ping")]);
-        let response = process_resp_message(&request, memory, expires);
+        let processor = create_message_processor();
+        let request = Message::from_cli("PING");
+        let response = processor.process_resp_message(&request);
         assert_eq!(
             response,
             Message::simple_string("PONG")
@@ -160,16 +268,28 @@ mod tests {
 
     #[test]
     fn message_set() {
-        let memory: SharedMemory = Arc::new(RwLock::new(HashMap::new()));
-        let expires: KeyExpiration = Arc::new(RwLock::new(HashMap::new()));
-        let request = Message::array(vec![
-            Message::bulk_string("set"),
-            Message::bulk_string("test_key"),
-            Message::bulk_string("test_value")
-        ]);
-        let response = process_resp_message(&request, memory.clone(), expires.clone());
+        let processor = create_message_processor();
+
+        let request = Message::from_cli("SET test_key test_value");
+        let response = processor.process_resp_message(&request);
+
         assert_eq!(response, Message::simple_string("OK"));
-        assert_eq!(memory.clone().read().unwrap().get("test_key").unwrap(), "test_value");
+        assert_eq!(processor.memory.read().unwrap().get("test_key").unwrap(), "test_value");
+    }
+
+    
+    #[test]
+    fn message_exists() {
+        let processor = create_message_processor();
+        processor.memory.write().unwrap().insert("foo".to_string(), "bar".to_string());
+
+        let request = Message::from_cli("EXISTS foo");
+        let response = processor.process_resp_message(&request);
+        assert_eq!(response, Message::Integer(1));
+
+        let request = Message::from_cli("EXISTS bar");
+        let response = processor.process_resp_message(&request);
+        assert_eq!(response, Message::Integer(0));
     }
 
     #[test]
@@ -225,8 +345,7 @@ mod tests {
     fn message_set_get_with_options(option_name: &str, option_value: &str, init_timestamp: u128, before_timestamp: u128, after_timestamp: u128) {
         // Setup
         travel_to(init_timestamp);
-        let memory: SharedMemory = Arc::new(RwLock::new(HashMap::new()));
-        let expires: KeyExpiration = Arc::new(RwLock::new(HashMap::new()));
+        let processor = create_message_processor();
 
         // Set value with expiration
         let request = Message::array(vec![
@@ -236,29 +355,46 @@ mod tests {
             Message::bulk_string(option_name),
             Message::bulk_string(option_value)
         ]);
-        let response = process_resp_message(&request, memory.clone(), expires.clone());
+
+        let response = processor.process_resp_message(&request);
         assert_eq!(response, Message::simple_string("OK"));
 
         // Get value before expiration
         travel_to(before_timestamp);
-        let request = Message::array(vec![
-            Message::bulk_string("get"),
-            Message::bulk_string("test_key")
-        ]);
-        let response = process_resp_message(&request, memory.clone(), expires.clone());
+        let request = Message::from_cli("GET test_key");
+
+        let response = processor.process_resp_message(&request);
         assert_eq!(response, Message::bulk_string("test_value"));
 
         // Get value after expiration
         travel_to(after_timestamp);
-        let request = Message::array(vec![
-            Message::bulk_string("get"),
-            Message::bulk_string("test_key")
-        ]);
-        let response = process_resp_message(&request, memory.clone(), expires.clone());
+        let request = Message::from_cli("GET test_key");
+
+        let response = processor.process_resp_message(&request);
         assert_eq!(response, Message::BulkString(None));
 
         // memory is cleared after expire
-        assert_eq!(memory.clone().read().unwrap().len(), 0);
-        assert_eq!(expires.clone().read().unwrap().len(), 0);
+        assert_eq!(processor.memory.clone().read().unwrap().len(), 0);
+        assert_eq!(processor.key_expiration.clone().read().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_incr() {
+        let processor = create_message_processor();
+        processor.memory.write().unwrap().insert("foo".to_string(), "68".to_string());
+
+        let request = Message::from_cli("INCR foo");
+        let response = processor.process_resp_message(&request);
+        assert_eq!(response, Message::Integer(69));
+    }
+
+    #[test]
+    fn test_decr() {
+        let processor = create_message_processor();
+        processor.memory.write().unwrap().insert("foo".to_string(), "70".to_string());
+
+        let request = Message::from_cli("DECR foo");
+        let response = processor.process_resp_message(&request);
+        assert_eq!(response, Message::Integer(69));
     }
 }
