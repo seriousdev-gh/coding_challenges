@@ -75,17 +75,6 @@ impl Message {
         }
     }
 
-    pub fn as_int(&self) -> Result<i64, ProcessingError> {
-        match self {
-            Self::Integer(content) => {  
-                Ok(*content)
-            },
-            _ => {
-                Err(ProcessingError::Other(format!("Invalid message type {} expected Integer", self.type_as_str())))
-            }
-        }
-    }
-
     pub fn write_to<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
         match self {
             Message::Array(Some(items)) => {

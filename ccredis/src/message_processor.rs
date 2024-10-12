@@ -1,4 +1,4 @@
-use std::{cell::Cell, collections::{HashMap, VecDeque}, sync::{Arc, RwLock}};
+use std::{cell::Cell, collections::{HashMap, VecDeque}, fs::File, io::{Read, Write}, sync::{Arc, RwLock}};
 
 use crate::{processing_error::ProcessingError, resp::message::Message};
 
@@ -27,7 +27,8 @@ pub type KeyExpiration = Arc<RwLock<HashMap<String, u128>>>;
 
 pub struct MessageProcessor {
     pub memory: SharedMemory, 
-    pub key_expiration: KeyExpiration
+    pub key_expiration: KeyExpiration,
+    pub db_file_path: String,
 }
 
 impl MessageProcessor {
@@ -58,6 +59,7 @@ impl MessageProcessor {
             "decr" => self.command_decr(args),
             "lpush" => self.command_lpush(args),
             "rpush" => self.command_rpush(args),
+            "save" => self.command_save(),
             _ => Err(ProcessingError::from("Expected command"))
         }    
     }
@@ -266,6 +268,67 @@ impl MessageProcessor {
         }
     }
 
+    fn command_save(&self) -> Result<Message, ProcessingError> {
+        let mut file = File::create(self.db_file_path.clone()).map_err(|_| ProcessingError::Other("Cannot open the file for write".to_string()))?;
+        let lock = self.memory.write().expect("Memory lock poisoned");
+        let key_expiration_lock = self.key_expiration.write().expect("Memory lock poisoned");
+        
+        // format: 
+        // i64 - number of keys, [
+        //   i64 - key_length, [u8 * key_length] - key, 
+        //   i64 - number of elements (0 for single value, >0 for lists),
+        //   [i64 - value_length, [u8 * value_length] - value] * number of elements
+        // ] * number of keys
+        // file.write(&(lock.len() as i64).to_be_bytes());
+        // for (key, value) in lock.iter() {
+        //     file.write(&(key.len() as i64).to_be_bytes());
+        //     file.write(&key.as_bytes());
+        //     match value {
+        //         Value::Single(content) => {
+        //             file.write(&0_i64.to_be_bytes());
+        //             file.write(&(content.len() as i64).to_be_bytes());
+        //             file.write(&content);
+        //         },
+        //         Value::List(list) => {
+        //             file.write(&(list.len() as i64).to_be_bytes());
+        //             for element in list {
+        //                 file.write(&(element.len() as i64).to_be_bytes());
+        //                 file.write(&element);
+        //             }
+        //         }
+        //     }
+        // }
+
+        let mut messages: Vec<Message> = Vec::new();
+        for (key, value) in lock.iter() {
+            let mut command: Vec<Message> = Vec::new();
+            match value {
+                Value::Single(content) => {
+                    command.push(Message::bulk_string("SET"));
+                    command.push(Message::bulk_string(key));
+                    command.push(Message::BulkString(Some(content.clone())));
+
+                    if let Some(expire_at) = key_expiration_lock.get(key) {
+                        command.push(Message::bulk_string("PXAT"));
+                        command.push(Message::bulk_string(&expire_at.to_string()));
+                    }
+                },
+                Value::List(list) => {
+                    command.push(Message::bulk_string("RPUSH"));
+                    command.push(Message::bulk_string(key));
+                    for element in list {
+                        command.push(Message::BulkString(Some(element.clone())));
+                    }
+                }
+            }
+            messages.push(Message::Array(Some(command)));
+        }
+
+        Message::Array(Some(messages)).write_to(&mut file).map_err(|_| ProcessingError::Other("Cant write message to writer".to_string()))?;
+
+        Ok(Message::SimpleString("OK".to_string()))
+    }
+
     fn insert(&self, key: &str, value: &Vec<u8>, expire_at: Option<u128>) {
         let mut memory_lock = self.memory.write().expect("Memory lock poisoned");
         memory_lock.insert(key.to_string(), Value::Single(value.clone()));
@@ -352,7 +415,8 @@ mod tests {
     fn create_message_processor() -> MessageProcessor {
         let memory: SharedMemory = Arc::new(RwLock::new(HashMap::new()));
         let key_expiration: KeyExpiration = Arc::new(RwLock::new(HashMap::new()));
-        MessageProcessor { memory, key_expiration }
+        let db_file_path = "tmp/db.bin".to_string();
+        MessageProcessor { memory, key_expiration, db_file_path }
     }
 
     #[test]
