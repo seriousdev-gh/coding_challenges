@@ -46,6 +46,17 @@ impl Message {
         }
     }
 
+    pub fn extract_bulk_content(&self) -> Result<&Vec<u8>, ProcessingError> {
+        match self {
+            Self::BulkString(Some(content)) => {  
+                Ok(content)
+            },
+            _ => {
+                Err(ProcessingError::Other(format!("Invalid message type {} expected Integer", self.type_as_str())))
+            }
+        }
+    }
+
     pub fn as_str(&self) -> Result<&str, ProcessingError> {
         match self {
             Self::BulkString(Some(content)) => {  

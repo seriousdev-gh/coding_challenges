@@ -85,6 +85,8 @@ fn key_expirer_worker(memory: SharedMemory, key_expiration: KeyExpiration) {
     let interval = time::Duration::from_millis(AMOUNT_OF_MILLISECONDS_BETWEEN_EXPIRATION_CHECKS);
     let mut rng = thread_rng();
     loop {
+        thread::sleep(interval);
+        
         let expiration_read_lock = key_expiration.read().unwrap();
         let current_timestamp = message_processor::now();
         let mut keys_to_remove: Vec<&str> = Vec::new();
@@ -104,7 +106,6 @@ fn key_expirer_worker(memory: SharedMemory, key_expiration: KeyExpiration) {
             }
         }
 
-        thread::sleep(interval);
     }
 }
 

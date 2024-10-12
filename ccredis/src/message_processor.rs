@@ -1,8 +1,27 @@
-use std::{cell::Cell, collections::HashMap, sync::{Arc, RwLock}};
+use std::{cell::Cell, collections::{HashMap, VecDeque}, sync::{Arc, RwLock}};
 
 use crate::{processing_error::ProcessingError, resp::message::Message};
 
-pub type SharedMemory = Arc<RwLock<HashMap<String, String>>>;
+#[derive(Debug, PartialEq)]
+pub enum Value {
+    Single(Vec<u8>),
+    List(VecDeque<Vec<u8>>)
+}
+
+
+impl From<&str> for Value {
+    fn from(content: &str) -> Self {
+        Value::Single(content.into())
+    }
+}
+
+impl From<String> for Value {
+    fn from(content: String) -> Self {
+        Value::Single(content.into())
+    }
+}
+
+pub type SharedMemory = Arc<RwLock<HashMap<String, Value>>>;
 pub type KeyExpiration = Arc<RwLock<HashMap<String, u128>>>;
 
 
@@ -37,6 +56,8 @@ impl MessageProcessor {
             "del" => self.command_del(args),
             "incr" => self.command_incr(args),
             "decr" => self.command_decr(args),
+            "lpush" => self.command_lpush(args),
+            "rpush" => self.command_rpush(args),
             _ => Err(ProcessingError::from("Expected command"))
         }    
     }
@@ -56,7 +77,7 @@ impl MessageProcessor {
 
     fn command_set(&self, args: &[Message]) -> Result<Message, ProcessingError> {
         let key = args.get(0).ok_or("[set] expected key")?.as_str()?;
-        let value = args.get(1).ok_or("[set] expected value")?.as_str()?;
+        let value = args.get(1).ok_or("[set] expected value")?.extract_bulk_content()?;
         let expire_type = args.get(2);
         let expire_value = args.get(3);
 
@@ -100,10 +121,10 @@ impl MessageProcessor {
         let memory_read_lock = self.memory.read().expect("Memory lock poisoned");
         let value = memory_read_lock.get(key);
 
-        if let Some(value) = value {
-            Ok(Message::bulk_string(value))
-        } else {
-            Ok(Message::BulkString(None))
+        match value {
+            Some(Value::Single(bulk_string_content)) => Ok(Message::BulkString(Some(bulk_string_content.clone()))),
+            Some(Value::List(_)) => Err("Wrong type. Expected single element, got list.".into()),
+            None => Ok(Message::BulkString(None))
         }
     }
 
@@ -144,11 +165,16 @@ impl MessageProcessor {
         }
 
         let mut memory_write_lock = self.memory.write().expect("Memory lock poisoned");
-        let counter = memory_write_lock.entry(key.to_string()).or_insert("0".to_string());
-        let integer = counter.parse::<i64>().map_err(|_| ProcessingError::InvalidInteger)? + 1;
-        *counter = integer.to_string();
+        let counter = memory_write_lock.entry(key.to_string()).or_insert("0".into());
+        if let Value::Single(counter) = counter {
+            let integer = std::str::from_utf8(counter).map_err(|_| ProcessingError::InvalidUtf8)?
+                                        .parse::<i64>().map_err(|_| ProcessingError::InvalidInteger)? + 1;
+            *counter = integer.to_string().into();
 
-        Ok(Message::Integer(integer))
+            Ok(Message::Integer(integer))
+        } else {
+            Err("Wrong type. Expected single element, got list.".into())
+        }
     }
     
     fn command_decr(&self, args: &[Message]) -> Result<Message, ProcessingError> {
@@ -159,17 +185,91 @@ impl MessageProcessor {
         }
 
         let mut memory_write_lock = self.memory.write().expect("Memory lock poisoned");
-        let counter = memory_write_lock.entry(key.to_string()).or_insert("0".to_string());
-        let integer = counter.parse::<i64>().map_err(|_| ProcessingError::InvalidInteger)? - 1;
-        *counter = integer.to_string();
+        let counter = memory_write_lock.entry(key.to_string()).or_insert("0".into());
+        if let Value::Single(counter) = counter {
+            let integer = std::str::from_utf8(counter).map_err(|_| ProcessingError::InvalidUtf8)?
+                                        .parse::<i64>().map_err(|_| ProcessingError::InvalidInteger)? - 1;
+            *counter = integer.to_string().into();
 
-        Ok(Message::Integer(integer))
+            Ok(Message::Integer(integer))
+        } else {
+            Err("Wrong type. Expected single element, got list.".into())
+        }
     }
 
-    fn insert(&self, key: &str, value: &str, expire_at: Option<u128>) {
+    fn command_lpush(&self, args: &[Message]) -> Result<Message, ProcessingError> {
+        if args.len() <= 1 {
+            return Err("[lpush] Expected at least two arguments: key, and list element".into());
+        }
+
+
+        let (key_message, element_messages) = split_to_command_args(args)?;
+        let key = key_message.as_str()?;
+
+        self.check_expiration(key);
+
+        let mut memory_write_lock = self.memory.write().expect("Memory lock poisoned");
+        let value = memory_write_lock.get_mut(key);
+
+        match value {
+            Some(Value::Single(_)) => return Err("Wrong type. Expected list element, got single.".into()),
+            Some(Value::List(list)) => {
+                for element in element_messages {
+                    list.push_front(element.extract_bulk_content()?.clone());
+                }
+                return Ok(Message::Integer(list.len() as i64));
+            },
+            None => {
+                let mut list: VecDeque<Vec<u8>> = VecDeque::new();
+                for element in element_messages {
+                    list.push_front(element.extract_bulk_content()?.clone());
+                }
+                let length = list.len();
+                memory_write_lock.insert(key.to_string(), Value::List(list));
+                return Ok(Message::Integer(length as i64));
+            }
+        }
+    }
+
+
+    fn command_rpush(&self, args: &[Message]) -> Result<Message, ProcessingError> {
+        if args.len() <= 1 {
+            return Err("[lpush] Expected at least two arguments: key, and list element".into());
+        }
+
+
+        let (key_message, element_messages) = split_to_command_args(args)?;
+        let key = key_message.as_str()?;
+
+        self.check_expiration(key);
+
+        let mut memory_write_lock = self.memory.write().expect("Memory lock poisoned");
+        let value = memory_write_lock.get_mut(key);
+
+        match value {
+            Some(Value::Single(_)) => return Err("Wrong type. Expected list element, got single.".into()),
+            Some(Value::List(list)) => {
+                for element in element_messages {
+                    list.push_back(element.extract_bulk_content()?.clone());
+                }
+                return Ok(Message::Integer(list.len() as i64));
+            },
+            None => {
+                let mut list: VecDeque<Vec<u8>> = VecDeque::new();
+                for element in element_messages {
+                    list.push_back(element.extract_bulk_content()?.clone());
+                }
+                let length = list.len();
+                memory_write_lock.insert(key.to_string(), Value::List(list));
+                return Ok(Message::Integer(length as i64));
+            }
+        }
+    }
+
+    fn insert(&self, key: &str, value: &Vec<u8>, expire_at: Option<u128>) {
         let mut memory_lock = self.memory.write().expect("Memory lock poisoned");
-        memory_lock.insert(key.to_string(), value.to_string());
-        
+        memory_lock.insert(key.to_string(), Value::Single(value.clone()));
+
         let mut key_expiration_lock = self.key_expiration.write().expect("Memory lock poisoned");
         if let Some(expire_timestamp) = expire_at {
             key_expiration_lock.insert(key.to_string(), expire_timestamp);
@@ -274,14 +374,14 @@ mod tests {
         let response = processor.process_resp_message(&request);
 
         assert_eq!(response, Message::simple_string("OK"));
-        assert_eq!(processor.memory.read().unwrap().get("test_key").unwrap(), "test_value");
+        assert_eq!(*processor.memory.read().unwrap().get("test_key").unwrap(), "test_value".into());
     }
 
     
     #[test]
     fn message_exists() {
         let processor = create_message_processor();
-        processor.memory.write().unwrap().insert("foo".to_string(), "bar".to_string());
+        processor.memory.write().unwrap().insert("foo".to_string(), "bar".into());
 
         let request = Message::from_cli("EXISTS foo");
         let response = processor.process_resp_message(&request);
@@ -381,7 +481,7 @@ mod tests {
     #[test]
     fn test_incr() {
         let processor = create_message_processor();
-        processor.memory.write().unwrap().insert("foo".to_string(), "68".to_string());
+        processor.memory.write().unwrap().insert("foo".to_string(), "68".into());
 
         let request = Message::from_cli("INCR foo");
         let response = processor.process_resp_message(&request);
@@ -391,10 +491,63 @@ mod tests {
     #[test]
     fn test_decr() {
         let processor = create_message_processor();
-        processor.memory.write().unwrap().insert("foo".to_string(), "70".to_string());
+        processor.memory.write().unwrap().insert("foo".to_string(), "70".into());
 
         let request = Message::from_cli("DECR foo");
         let response = processor.process_resp_message(&request);
         assert_eq!(response, Message::Integer(69));
+    }
+
+    #[test]
+    fn test_lpush() {
+        let processor = create_message_processor();
+        let request = Message::from_cli("LPUSH foo 1 2 3");
+
+        let response = processor.process_resp_message(&request);
+        assert_eq!(response, Message::Integer(3));
+
+        let lock = processor.memory.read().unwrap();
+        if let Some(Value::List(list)) = lock.get("foo") {
+            assert_eq!(*list, VecDeque::from([Vec::from("3".as_bytes()), Vec::from("2".as_bytes()), Vec::from("1".as_bytes())]))
+        } else {
+            unreachable!("Expected list");
+        }
+    }
+
+    #[test]
+    fn test_rpush() {
+        let processor = create_message_processor();
+        let request = Message::from_cli("RPUSH foo 1 2 3");
+
+        let response = processor.process_resp_message(&request);
+        assert_eq!(response, Message::Integer(3));
+
+        let lock = processor.memory.read().unwrap();
+        if let Some(Value::List(list)) = lock.get("foo") {
+            assert_eq!(*list, VecDeque::from([Vec::from("1".as_bytes()), Vec::from("2".as_bytes()), Vec::from("3".as_bytes())]))
+        } else {
+            unreachable!("Expected list");
+        }
+    }
+
+        #[test]
+    fn test_rpush_with_append() {
+        let processor = create_message_processor();
+
+        let request = Message::from_cli("RPUSH foo 1");
+        let response = processor.process_resp_message(&request);
+        assert_eq!(response, Message::Integer(1));
+
+        
+        let request = Message::from_cli("RPUSH foo 2 3");
+        let response = processor.process_resp_message(&request);
+        assert_eq!(response, Message::Integer(3));
+
+        let lock = processor.memory.read().unwrap();
+        if let Some(Value::List(list)) = lock.get("foo") {
+            assert_eq!(*list, VecDeque::from([Vec::from("1".as_bytes()), Vec::from("2".as_bytes()), Vec::from("3".as_bytes())]))
+        } else {
+            unreachable!("Expected list");
+        }
     }
 }
