@@ -107,12 +107,12 @@ fn handle_client(stream: &mut TcpStream, memory: SharedMemory, key_expiration: K
             }
         } else {
             println!("[TCP] Failed to read byte");
+            return
         }
     }
     println!("[TCP] Connection closed");
 }
 
-// TODO: needs testing
 fn key_expirer_worker(memory: SharedMemory, key_expiration: KeyExpiration) {
     let interval = time::Duration::from_millis(AMOUNT_OF_MILLISECONDS_BETWEEN_EXPIRATION_CHECKS);
     let mut rng = thread_rng();

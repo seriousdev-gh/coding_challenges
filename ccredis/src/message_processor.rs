@@ -1,4 +1,4 @@
-use std::{cell::Cell, collections::{HashMap, VecDeque}, fs::File, io::{Read, Write}, sync::{Arc, RwLock}};
+use std::{cell::Cell, collections::{HashMap, VecDeque}, fs::File, io::BufWriter, sync::{Arc, RwLock}};
 
 use crate::{processing_error::ProcessingError, resp::message::Message};
 
@@ -269,7 +269,7 @@ impl MessageProcessor {
     }
 
     fn command_save(&self) -> Result<Message, ProcessingError> {
-        let mut file = File::create(self.db_file_path.clone()).map_err(|_| ProcessingError::Other("Cannot open the file for write".to_string()))?;
+        let file = File::create(self.db_file_path.clone()).map_err(|_| ProcessingError::Other("Cannot open the file for write".to_string()))?;
         let lock = self.memory.write().expect("Memory lock poisoned");
         let key_expiration_lock = self.key_expiration.write().expect("Memory lock poisoned");
         
@@ -324,7 +324,7 @@ impl MessageProcessor {
             messages.push(Message::Array(Some(command)));
         }
 
-        Message::Array(Some(messages)).write_to(&mut file).map_err(|_| ProcessingError::Other("Cant write message to writer".to_string()))?;
+        Message::Array(Some(messages)).write_to(&mut BufWriter::new(file)).map_err(|_| ProcessingError::Other("Cant write message to writer".to_string()))?;
 
         Ok(Message::SimpleString("OK".to_string()))
     }
@@ -412,6 +412,14 @@ mod tests {
         TIMESTAMP.with(|ts| ts.set(timestamp));
     }
 
+    fn from_cli(command: &str) -> Message {
+        let mut messages: Vec<Message> = Vec::new();
+        for string in command.split(' ') {
+            messages.push(Message::BulkString(Some(string.to_string().into_bytes())));
+        }
+        Message::Array(Some(messages))
+    }
+
     fn create_message_processor() -> MessageProcessor {
         let memory: SharedMemory = Arc::new(RwLock::new(HashMap::new()));
         let key_expiration: KeyExpiration = Arc::new(RwLock::new(HashMap::new()));
@@ -422,7 +430,7 @@ mod tests {
     #[test]
     fn message_ping() {
         let processor = create_message_processor();
-        let request = Message::from_cli("PING");
+        let request = from_cli("PING");
         let response = processor.process_resp_message(&request);
         assert_eq!(
             response,
@@ -434,7 +442,7 @@ mod tests {
     fn message_set() {
         let processor = create_message_processor();
 
-        let request = Message::from_cli("SET test_key test_value");
+        let request = from_cli("SET test_key test_value");
         let response = processor.process_resp_message(&request);
 
         assert_eq!(response, Message::simple_string("OK"));
@@ -447,11 +455,11 @@ mod tests {
         let processor = create_message_processor();
         processor.memory.write().unwrap().insert("foo".to_string(), "bar".into());
 
-        let request = Message::from_cli("EXISTS foo");
+        let request = from_cli("EXISTS foo");
         let response = processor.process_resp_message(&request);
         assert_eq!(response, Message::Integer(1));
 
-        let request = Message::from_cli("EXISTS bar");
+        let request = from_cli("EXISTS bar");
         let response = processor.process_resp_message(&request);
         assert_eq!(response, Message::Integer(0));
     }
@@ -525,14 +533,14 @@ mod tests {
 
         // Get value before expiration
         travel_to(before_timestamp);
-        let request = Message::from_cli("GET test_key");
+        let request = from_cli("GET test_key");
 
         let response = processor.process_resp_message(&request);
         assert_eq!(response, Message::bulk_string("test_value"));
 
         // Get value after expiration
         travel_to(after_timestamp);
-        let request = Message::from_cli("GET test_key");
+        let request = from_cli("GET test_key");
 
         let response = processor.process_resp_message(&request);
         assert_eq!(response, Message::BulkString(None));
@@ -547,7 +555,7 @@ mod tests {
         let processor = create_message_processor();
         processor.memory.write().unwrap().insert("foo".to_string(), "68".into());
 
-        let request = Message::from_cli("INCR foo");
+        let request = from_cli("INCR foo");
         let response = processor.process_resp_message(&request);
         assert_eq!(response, Message::Integer(69));
     }
@@ -557,7 +565,7 @@ mod tests {
         let processor = create_message_processor();
         processor.memory.write().unwrap().insert("foo".to_string(), "70".into());
 
-        let request = Message::from_cli("DECR foo");
+        let request = from_cli("DECR foo");
         let response = processor.process_resp_message(&request);
         assert_eq!(response, Message::Integer(69));
     }
@@ -565,7 +573,7 @@ mod tests {
     #[test]
     fn test_lpush() {
         let processor = create_message_processor();
-        let request = Message::from_cli("LPUSH foo 1 2 3");
+        let request = from_cli("LPUSH foo 1 2 3");
 
         let response = processor.process_resp_message(&request);
         assert_eq!(response, Message::Integer(3));
@@ -581,7 +589,7 @@ mod tests {
     #[test]
     fn test_rpush() {
         let processor = create_message_processor();
-        let request = Message::from_cli("RPUSH foo 1 2 3");
+        let request = from_cli("RPUSH foo 1 2 3");
 
         let response = processor.process_resp_message(&request);
         assert_eq!(response, Message::Integer(3));
@@ -598,12 +606,12 @@ mod tests {
     fn test_rpush_with_append() {
         let processor = create_message_processor();
 
-        let request = Message::from_cli("RPUSH foo 1");
+        let request = from_cli("RPUSH foo 1");
         let response = processor.process_resp_message(&request);
         assert_eq!(response, Message::Integer(1));
 
         
-        let request = Message::from_cli("RPUSH foo 2 3");
+        let request = from_cli("RPUSH foo 2 3");
         let response = processor.process_resp_message(&request);
         assert_eq!(response, Message::Integer(3));
 

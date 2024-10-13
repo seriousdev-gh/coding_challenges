@@ -28,14 +28,6 @@ impl Message {
         Message::Array(Some(messages))
     }
 
-    pub fn from_cli(command: &str) -> Message {
-        let mut messages: Vec<Message> = Vec::new();
-        for string in command.split(' ') {
-            messages.push(Message::BulkString(Some(string.to_string().into_bytes())));
-        }
-        Message::Array(Some(messages))
-    }
-
     pub fn type_as_str(&self) -> &str {
         match self {
             Message::Array(_) => "Array",
