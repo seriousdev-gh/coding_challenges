@@ -2,19 +2,17 @@ require_relative 'garden_parser'
 require_relative 'garden_solver'
 
 def small_test
-    garden = Hash.new { |hash, key| hash[key] = Hash.new }
+    garden = Array.new(11) { Array.new(11) }
 
-    garden[0][0] = :gold
-    garden[0][1] = :fire
-    garden[1][0] = :salt
-    garden[-1][0] = :fire
-    garden[0][-1] = :fire
-    garden[1][-1] = :fire
-    garden[2][2] = :lead
-    garden[3][3] = :earth
-    garden[-2][-2] = :mercury
-
-    garden.default_proc = nil
+    garden[5][5] = :gold
+    garden[5][6] = :fire
+    garden[6][5] = :salt
+    garden[4][5] = :fire
+    garden[5][4] = :fire
+    garden[6][4] = :fire
+    garden[7][7] = :lead
+    garden[8][8] = :earth
+    garden[3][3] = :mercury
 
     result, solution = GardenSolver.new.call(garden)
 

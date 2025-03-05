@@ -1,3 +1,5 @@
+require 'json'
+
 class GardenParser
     def call(data_string)
         data = JSON.parse(data_string)
@@ -12,12 +14,11 @@ class GardenParser
 
         puts "Center: #{center}"
 
-        garden = {}
+        garden = Array.new(11) { Array.new(11) }
         data['symbols'].each do |symbol|
             q, r = pixel_to_grid(symbol['x'] - center['x'], symbol['y'] - center['y'], grid_size)
 
-            garden[q] ||= {}
-            garden[q][r] = symbol['name'].sub('_a', '').to_sym
+            garden[q+5][r+5] = symbol['name'].sub('_a', '').to_sym
         end
         garden
     end

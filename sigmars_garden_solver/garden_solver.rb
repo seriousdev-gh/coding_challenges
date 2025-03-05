@@ -1,7 +1,3 @@
-require 'json'
-
-# TODO: improve performance. For now it is very slow.
-
 class GardenSolver
     BASIC_ELEMENTS = [:fire, :water, :earth, :air].freeze
     METALS = [:lead, :tin, :iron, :copper, :silver, :gold].reverse.freeze
@@ -18,19 +14,26 @@ class GardenSolver
     #   (-1, 0)  (0, 0)  (1, 0)
     #       (-1, 1)  (0, 1)
 
+    Marble = Struct.new(:symbol, :q, :r, :removed)
+
     def call(garden)
         solution = []
         metals = []
+        marbles = []
 
-        garden.each_value do |rs_hash| 
-            rs_hash.each_value do |element| 
+        garden.each_with_index do |row, q|
+            row.each_with_index do |element, r|
+                next unless element
+
                 metals << element if METALS.include?(element)
+                marbles << Marble.new(element, q, r, false)
             end
         end
 
         metals = METALS & metals # sort metals
         t = Time.now
-        solved = solve(garden, metals, solution)
+        solved = solve(garden, metals, marbles, solution)
+
         puts "Completed in #{Time.now - t} sec"
 
         [solved, solution.reverse]
@@ -38,48 +41,49 @@ class GardenSolver
 
     private
 
-    def solve(garden, metals, solution)
-        # p [:solve, garden, metals, solution] 
-        return true if solved?(garden, metals)
+    def solve(garden, metals, marbles, solution, depth = 0)
+        return true if marbles.all?(&:removed)
 
         available = []
-        garden.each do |q, rs|
-            rs.each_key do |r|
-                if enabled?(garden, q, r)
-                    available << [q, r]
-                end
-            end
+        marbles.each_with_index do |marble, i|
+            next if marble.removed
+
+            available << [marble, i] if enabled?(garden, marble.q, marble.r)
         end
 
         return false if available.empty?
 
-        # p [:available, available]
-
-        available.each do |q1, r1|
-            el1 = garden[q1][r1]
-            available.each do |q2, r2|
-                el2 = garden[q2][r2]
-
-                if q1 == q2 && r1 == r2
+        available.each do |marble1, marble_index1|
+            q1 = marble1.q
+            r1 = marble1.r
+            el1 = marble1.symbol
+            available.each do |marble2, marble_index2|
+                q2 = marble2.q
+                r2 = marble2.r
+                el2 = marble2.symbol
+                if marble_index1 == marble_index2
                     if el1 == :gold && metals.size == 1 && metals.last == :gold
-                        garden[q1].delete(r1)
+                        garden[q1][r1] = nil
                         removed_metal = metals.pop
+                        marble1.removed = true
 
-                        if solve(garden, metals, solution)
-                            solution << [el1, [q1, r1]]
+                        if solve(garden, metals, marbles, solution, depth + 1)
+                            solution << [el1, [q1-5, r1-5]]
                             return true 
                         end
                         
+                        marble1.removed = false
                         metals.push(removed_metal)
                         garden[q1][r1] = :gold
                     end
                     next
                 end
 
-                # p [:can_remove_pair, can_remove_pair?(garden, metals, q1, r1, q2, r2)]
                 if can_remove_pair?(garden, metals, el1, el2)
-                    garden[q1].delete(r1)
-                    garden[q2].delete(r2)
+                    garden[q1][r1] = nil
+                    garden[q2][r2] = nil
+                    marble1.removed = true
+                    marble2.removed = true
                     
                     if el1 == :mercury || el2 == :mercury
                         el1_metal = el1 == :lead || el1 == :tin || el1 == :iron || el1 == :copper || el1 == :silver
@@ -87,12 +91,14 @@ class GardenSolver
                         removed_metal = metals.pop if el1_metal || el2_metal
                     end
 
-                    if solve(garden, metals, solution)
-                        solution << [el1, [q1, r1], el2, [q2, r2]]
+                    if solve(garden, metals, marbles, solution, depth + 1)
+                        solution << [el1, [q1-5, r1-5], el2, [q2-5, r2-5]]
                         return true
                     end
                     
                     metals.push(removed_metal) if removed_metal
+                    marble1.removed = false
+                    marble2.removed = false
                     garden[q1][r1] = el1
                     garden[q2][r2] = el2
                 end
@@ -101,32 +107,15 @@ class GardenSolver
 
         false
     end
-
-    def solved?(garden, metals)
-        return false unless metals.empty?
-
-        garden.empty? || garden.values.all? do |rs_hash|   
-            rs_hash.empty? || rs_hash.values.all?(&:nil?)
-        end
-    end
     
     # we can remove marble if it has three consequent empty neighbour cells
     def enabled?(garden, q, r)
-        return false unless garden[q][r]
-        if t = garden[q+1]
-            p1 = t[r]
-            p6 = t[r-1]
-        end
-
-        if t = garden[q]
-            p2 = t[r+1]
-            p5 = t[r-1]
-        end
-
-        if t = garden[q-1]
-            p3 = t[r+1]
-            p4 = t[r]
-        end
+        p1 = q < 10 && garden[q+1][r]
+        p6 = q < 10 && r > 0 && garden[q+1][r-1]
+        p2 = r < 10 && garden[q][r+1]
+        p5 = r > 0 && garden[q][r-1]
+        p3 = q > 0 && r < 10 && garden[q-1][r+1]
+        p4 = q > 0 && garden[q-1][r]
 
         !p1 && !p2 && !p3 ||
         !p2 && !p3 && !p4 ||
