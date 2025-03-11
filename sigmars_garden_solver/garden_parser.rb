@@ -7,18 +7,38 @@ class GardenParser
         hex_width = calculate_grid_size(data['symbols'])
         grid_size = hex_width / Math.sqrt(3.0)
 
-        puts "Grid size: #{grid_size}"
-
         center = data['symbols'].find { _1['name'] == 'gold' }
         raise 'center not found' if center.nil?
-
-        puts "Center: #{center}"
 
         garden = Array.new(11) { Array.new(11) }
         data['symbols'].each do |symbol|
             q, r = pixel_to_grid(symbol['x'] - center['x'], symbol['y'] - center['y'], grid_size)
+            next if q > 5 || r > 5
+            next if q < -5 || r < -5
 
-            garden[q+5][r+5] = symbol['name'].sub('_a', '').to_sym
+            name = symbol['name'].sub('_a', '').to_sym
+
+            garden[q+5][r+5] = name
+        end
+        garden
+    end
+
+    def hex_to_screen(data_string)
+        data = JSON.parse(data_string)
+        
+        hex_width = calculate_grid_size(data['symbols'])
+        grid_size = hex_width / Math.sqrt(3.0)
+
+        center = data['symbols'].find { _1['name'] == 'gold' }
+        raise 'center not found' if center.nil?
+
+        garden = Hash.new
+        data['symbols'].each do |symbol|
+            q, r = pixel_to_grid(symbol['x'] - center['x'], symbol['y'] - center['y'], grid_size)
+            next if q > 5 || r > 5
+            next if q < -5 || r < -5
+            
+            garden[[q, r]] = { x: symbol['x'], y: symbol['y'] }
         end
         garden
     end
