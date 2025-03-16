@@ -1,4 +1,4 @@
-# Generated with deepseek
+# Mostly generated with deepseek
 # usage: `python symbol_detector.py "screenshot.png"`
 #    or: `python symbol_detector.py "screenshot.png" debug` - to save screenshot with marked symbols
 

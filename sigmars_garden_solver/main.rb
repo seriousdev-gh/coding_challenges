@@ -1,56 +1,37 @@
 require_relative 'garden_parser'
 require_relative 'garden_solver'
 
-# TODO: refactor this file
-# TODO: refactor method hex_to_screen in garden_parser.rb
 # TODO: implement solver for Sigmars Garden 2 (new element - essence)
 
-if ARGV.first == 'wait_and_solve'
-    require 'auto_click'
-    ac = AutoClick.new()
-    initial_files = Dir['C:/Users/boris/Pictures/Screenshots/*']
+def print_usage_end_exit
+    puts "Usage: ruby main.rb autosolve <screenshot_folder>"
+    puts "       ruby main.rb solve <screenshot_file>"
+    exit 1
+end
 
-    loop do
-        sleep 0.5
-        current_files = Dir['C:/Users/boris/Pictures/Screenshots/*']
-        new_files = current_files - initial_files
-        initial_files = current_files
-        if new_files.empty?
-            puts 'New screenshots not found'
-            next
-        end
+if ARGV.size == 0
+    print_usage_end_exit
+end
 
-        screenshot = new_files.first
-        puts "Found new screenshot: #{screenshot}. Detecting symbols..."
-        sleep 0.5 # wait for screenshot to fully write on disk
-        
-        detected_symbols = `python symbol_detector.py "#{screenshot}" debug`
-
-        garden = GardenParser.new.call(detected_symbols)
-        hex_to_screen = GardenParser.new.hex_to_screen(detected_symbols)
-        solved, solution = GardenSolver.new.call(garden)
-
-        raise 'Solution not found' unless solved
-
-        screen_positions = solution.map { [hex_to_screen[_1[1]], hex_to_screen[_1[3]]] }.flatten.compact
-        screen_positions.each do |sp|
-            ac.mouse_move(sp[:x], sp[:y])
-            sleep 0.03
-            ac.mouse_down(:left)
-            sleep 0.03
-            ac.mouse_up(:left)
-            sleep 0.03
-        end
+if ARGV[0] == 'autosolve'
+    unless ARGV[1]
+        puts "ERROR: Screenshot folder is not provided\n"
+        print_usage_end_exit
     end
-else
-    screenshot = ARGV.first
-    raise 'Screenshot file is not provided' if screenshot.nil? || screenshot.empty?
+    require_relative 'autosolver'
+    Autosolver.new(ARGV[1]).call
+    exit 0
+end
 
-    detected_symbols = `python symbol_detector.py "#{screenshot}" debug`
-    puts detected_symbols
+if ARGV[0] == 'solve'
+    unless ARGV[1]
+        puts "ERROR: Screenshot file is not provided\n"
+        print_usage_end_exit
+    end
 
-    garden = GardenParser.new.call(detected_symbols)
-    solved, solution = GardenSolver.new.call(garden)
+    detected_symbols = `python symbol_detector.py "#{ARGV[1]}" debug`
+    parser = GardenParser.new(detected_symbols).call
+    solved, solution = GardenSolver.new.call(parser.garden)
 
     if solved
         puts "Solved"

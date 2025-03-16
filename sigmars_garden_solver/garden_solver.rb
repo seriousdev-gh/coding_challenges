@@ -91,8 +91,12 @@ class GardenSolver
         number_of_odds += 1 if total_water.odd?
 
         # run with heuristics:
-        # checking salts last seems to improve performance
-        # immediately return in obviuos impossible cases
+        # immediately return in case when parity is broken
+        #
+        # first try remove all basic elements 
+        #
+        # then remove only salt pairs it significantly reduces number of combinations to check because
+        # removing basic salt pair may introduces impossible to solve branches later
         return false if total_salt == 0 && number_of_odds > 0
         return false if total_salt < number_of_odds
 
@@ -100,9 +104,7 @@ class GardenSolver
             a.symbol == b.symbol
         end
 
-        return true if process(available_salts, marbles, depth) do |a, b|
-            true
-        end
+        return true if process(available_salts, marbles, depth) # skip block check, pairs of salts always removable
 
         return true if process(available_vitalities, marbles, depth) do |a, b|
             a.symbol != b.symbol
@@ -143,9 +145,6 @@ class GardenSolver
     end
 
     def check_gold(marble, marbles, depth)
-        removed_metal = metals.pop
-
-        # ddebug depth, marble
         marble.remove(grid)
 
         if solve(marbles, depth + 1)
@@ -161,9 +160,8 @@ class GardenSolver
         list.each_with_index do |marble1, i|
             list.each_with_index do |marble2, j|
                 next if i == j || j < i # order of pairs doesnt matter, so we dont need to run pair that already checked
-                next unless yield(marble1, marble2)
+                next unless yield(marble1, marble2) if block_given?
 
-                # ddebug depth, marble1, marble2
                 marble1.remove(grid)
                 marble2.remove(grid)
 
@@ -177,7 +175,6 @@ class GardenSolver
                 end
                 
                 metals.push(removed_metal) if removed_metal
-
                 marble2.add(grid)
                 marble1.add(grid)
             end
