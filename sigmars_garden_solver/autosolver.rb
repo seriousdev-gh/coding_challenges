@@ -48,8 +48,9 @@ class Autosolver
         puts "Solution found. Go!"
         clicks = []
         solution.each do |step|
-            clicks << parser.conversion.fetch(step[1])
-            clicks << parser.conversion.fetch(step[3]) if step[3]
+            step.each do |item|
+                clicks << parser.conversion.fetch([item[1], item[2]])
+            end
         end
         clicks.each do |sp|
             @ac.mouse_move(sp[:x], sp[:y])

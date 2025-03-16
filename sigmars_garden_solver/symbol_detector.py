@@ -31,6 +31,8 @@ SYMBOL_TEMPLATES = {
     'silver_a': cv2.imread('symbols/symbol_silver_a.png', cv2.IMREAD_COLOR),
     'mercury': cv2.imread('symbols/symbol_mercury.png', cv2.IMREAD_COLOR),
     'salt': cv2.imread('symbols/symbol_salt.png', cv2.IMREAD_COLOR),
+    'essence': cv2.imread('symbols/symbol_essence.png', cv2.IMREAD_COLOR),
+    'essence_a': cv2.imread('symbols/symbol_essence_a.png', cv2.IMREAD_COLOR),
 }
 
 CONFIDENCE_THRESHOLD = 0.7

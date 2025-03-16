@@ -90,6 +90,7 @@ class Marble
         return :mercury if symbol == :mercury
         return :vitality if symbol == :life || symbol == :death
         return :salt if symbol == :salt
+        return :essence if symbol == :essence
 
         raise 'unreachable'
     end

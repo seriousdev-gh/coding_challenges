@@ -57,17 +57,20 @@ class GardenSolver
         available_vitalities = []
         available_basic = []
         available_salts = []
+        available_essence = []
         total_fire = 0
         total_earth = 0
         total_air = 0
         total_water = 0
         total_salt = 0
+        total_essence = 0
         marbles.each do |marble|
             total_fire += 1 if marble.symbol == :fire 
             total_earth += 1 if marble.symbol == :earth 
             total_air += 1 if marble.symbol == :air 
             total_water += 1 if marble.symbol == :water 
             total_salt += 1 if marble.symbol == :salt 
+            total_essence += 1 if marble.symbol == :essence 
 
             next unless marble.available
 
@@ -82,6 +85,7 @@ class GardenSolver
             available_vitalities << marble if marble.type == :vitality
             available_basic << marble if marble.type == :basic
             available_salts << marble if marble.type == :salt
+            available_essence << marble if marble.type == :essence
         end
 
         number_of_odds = 0
@@ -97,8 +101,12 @@ class GardenSolver
         #
         # then remove only salt pairs it significantly reduces number of combinations to check because
         # removing basic salt pair may introduces impossible to solve branches later
-        return false if total_salt == 0 && number_of_odds > 0
-        return false if total_salt < number_of_odds
+        return false if total_salt == 0 && total_essence == 0 && number_of_odds > 0
+        return false if total_essence > 0 && (total_fire == 0 || total_earth == 0 || total_air == 0 || total_water == 0)
+        # TODO: check parity total_salt and total_essence
+        # return false if total_salt < number_of_odds
+
+        return true if process_essence(available_essence, available_basic, marbles, depth)
 
         return true if process(available_basic, marbles, depth) do |a, b|
             a.symbol == b.symbol
@@ -148,7 +156,7 @@ class GardenSolver
         marble.remove(grid)
 
         if solve(marbles, depth + 1)
-            solution.push [marble.symbol, [marble.q-5, marble.r-5]]
+            solution.push [[marble.symbol, marble.q-5, marble.r-5]]
             return true 
         end
         
@@ -170,13 +178,59 @@ class GardenSolver
                 end
 
                 if solve(marbles, depth + 1)
-                    solution.push [marble1.symbol, [marble1.q-5, marble1.r-5], marble2.symbol, [marble2.q-5, marble2.r-5]]
+                    solution.push [[marble1.symbol, marble1.q-5, marble1.r-5], [marble2.symbol, marble2.q-5, marble2.r-5]]
                     return true
                 end
                 
                 metals.push(removed_metal) if removed_metal
                 marble2.add(grid)
                 marble1.add(grid)
+            end
+        end
+
+        false
+    end
+
+    def process_essence(essence_list, basic_list, marbles, depth)
+        return false if essence_list.empty?
+        return false if basic_list.empty?
+
+        list_air = basic_list.select { _1.symbol == :air }
+        list_fire = basic_list.select { _1.symbol == :fire }
+        list_water = basic_list.select { _1.symbol == :water }
+        list_earth = basic_list.select { _1.symbol == :earth }
+
+        return false if list_air.empty? || list_fire.empty? || list_water.empty? || list_earth.empty?
+
+        essence_list.each do |marble_essence|
+            list_air.each do |marble_air|
+                list_fire.each do |marble_fire|
+                    list_water.each do |marble_water|
+                        list_earth.each do |marble_earth|
+                            marble_essence.remove(grid)
+                            marble_air.remove(grid)
+                            marble_fire.remove(grid)
+                            marble_water.remove(grid)
+                            marble_earth.remove(grid)
+
+                            if solve(marbles, depth + 1)
+                                solution.push([
+                                    [marble_essence.symbol, marble_essence.q-5, marble_essence.r-5], 
+                                    [marble_air.symbol, marble_air.q-5, marble_air.r-5],
+                                    [marble_fire.symbol, marble_fire.q-5, marble_fire.r-5],
+                                    [marble_water.symbol, marble_water.q-5, marble_water.r-5],
+                                    [marble_earth.symbol, marble_earth.q-5, marble_earth.r-5]])
+                                return true
+                            end
+
+                            marble_earth.add(grid)
+                            marble_water.add(grid)
+                            marble_fire.add(grid)
+                            marble_air.add(grid)
+                            marble_essence.add(grid)
+                        end
+                    end
+                end
             end
         end
 
