@@ -1,6 +1,7 @@
 /.idea/
 1brc/1brc
 1brc/*.output*
+**/.vscode/
 
 */target/
 db.txt
