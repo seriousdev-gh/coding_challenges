@@ -3,67 +3,83 @@ package main
 import (
 	"fmt"
 	"net"
+	"os"
 	"strings"
 )
 
+const host = "127.0.0.1"
+const port = "3000"
+
 func main() {
-	ln, err := net.Listen("tcp", "127.0.0.1:3000")
+	socket, err := net.Listen("tcp", fmt.Sprintf("%s:%s", host, port))
 	if err != nil {
 		println("Error creating socket: ", err)
+		os.Exit(1)
 	}
+	defer socket.Close()
 
-	println("Ready to accept connections")
+	fmt.Printf("INFO: Server ready to accept connection on %s:%s\n", host, port)
+
 	for {
-		var n int
-		var err error
-		conn, err := ln.Accept()
-		if err != nil {
-			println("Error while accepting connection: ", err)
-			conn.Close()
-			continue
-		}
-
-		var buffer = make([]byte, 1024)
-
-		n, err = conn.Read(buffer)
-		if err != nil {
-			println("Error while reading from socket: ", err)
-			conn.Close()
-			continue
-		}
-
-		println("Got ", n, " bytes from socket")
-		message := string(buffer[:])
-		first_line, rest, found := strings.Cut(message, "\r\n")
-		if !found {
-			println("Invalid http request")
-			conn.Close()
-			continue
-		}
-		info := strings.Split(first_line, " ")
-		info = Map(info, strings.TrimSpace)
-
-		fmt.Printf("Method: '%s', Path: '%s', '%s'", info[0], info[1], info[2])
-
-		println("Body: ", rest)
-
-		response := fmt.Sprintf("HTTP/1.1 200 OK\r\n\r\nRequested path: %s\r\n", info[1])
-
-		n, err = conn.Write([]byte(response))
-		if err != nil {
-			println("Error while reading from socket: ", err)
-			conn.Close()
-			continue
-		}
-		println("Written ", n, " bytes to socket")
-		conn.Close()
+		accept_connection(socket)
 	}
 }
 
-func Map(vs []string, f func(string) string) []string {
-	vsm := make([]string, len(vs))
-	for i, v := range vs {
-		vsm[i] = f(v)
+func accept_connection(socket net.Listener) {
+	var n int
+	UNUSED(n)
+	var err error
+	conn, err := socket.Accept()
+	if err != nil {
+		println("ERROR: socket.Accept:", err)
+		return
 	}
-	return vsm
+	defer conn.Close()
+
+	var buffer = make([]byte, 1024) // TODO: support request larger than 1024 bytes
+
+	n, err = conn.Read(buffer)
+	if err != nil {
+		println("ERROR: conn.Read: ", err)
+		return
+	}
+
+	message := string(buffer[:])
+	start_string, rest, found := strings.Cut(message, "\r\n")
+	UNUSED(rest)
+	if !found {
+		println("ERROR: Invalid http request")
+		return
+	}
+	start_string_parts := strings.Split(start_string, " ")
+	for i, part := range start_string_parts {
+		start_string_parts[i] = strings.TrimSpace(part)
+	}
+	method := start_string_parts[0]
+	path := start_string_parts[1]
+
+	fmt.Printf("INFO: Recieved request: %s %s\n", method, path)
+
+	status, body := serve(method, path)
+	response := fmt.Sprintf("HTTP/1.1 %d OK\r\n\r\n%s\r\n", status, body)
+	n, err = conn.Write([]byte(response))
+	if err != nil {
+		println("ERROR: conn.Write: ", err)
+		return
+	}
 }
+
+func serve(method string, path string) (int, []byte) {
+	if path == "/" {
+		path = "/index.html"
+	}
+	content, err := os.ReadFile(fmt.Sprintf("www/%s", path))
+	if err != nil {
+		fmt.Printf("WARN: os.ReadFile: %v", err)
+		return 404, []byte("Not found")
+	}
+
+	return 200, content
+}
+
+func UNUSED(x ...interface{}) {}
