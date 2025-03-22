@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Info</title>
+  </head>
+  <body>
+    <h1>Current time</h1>
+    <p>{{ .Time }}</p>
+    <h1>Headers</h1>
+    <ul>
+      {{ range $key, $value := .Request.Headers }}
+        <li>{{ $key }}: {{ $value }}</li>
+      {{ end }}
+    </ul>
+    <h1>Params</h1>
+    <ul>
+      {{ range $key, $value := .Request.Params }}
+        <li>{{ $key }}: {{ $value }}</li>
+      {{ end }}
+    </ul>
+  </body>
+</html>

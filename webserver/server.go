@@ -8,6 +8,21 @@ import (
 )
 
 var id = 0
+var routes = make(map[string]func(*Request) Response)
+
+type Request struct {
+	Method  string
+	Path    string
+	Params  map[string]string
+	Headers map[string]string
+	Body    string
+}
+
+type Response struct {
+	Status  int
+	Body    []byte
+	Headers map[string]string
+}
 
 func server_start(host string, port string) {
 	socket, err := net.Listen("tcp", fmt.Sprintf("%s:%s", host, port))
@@ -25,12 +40,11 @@ func server_start(host string, port string) {
 			println("ERROR: socket.Accept:", err)
 			break
 		}
-		id += 1
-		go process_connection(conn, id)
+		go process_connection(conn)
 	}
 }
 
-func process_connection(conn net.Conn, id int) {
+func process_connection(conn net.Conn) {
 	defer conn.Close()
 	var n int
 	UNUSED(n)
@@ -44,43 +58,82 @@ func process_connection(conn net.Conn, id int) {
 		return
 	}
 
-	message := string(buffer[:])
-	start_string, rest, found := strings.Cut(message, "\r\n")
-	UNUSED(rest)
-	if !found {
+	request, err := parse_request(buffer)
+	if err != nil {
 		println("ERROR: Invalid http request")
 		return
 	}
-	start_string_parts := strings.Split(start_string, " ")
-	for i, part := range start_string_parts {
-		start_string_parts[i] = strings.TrimSpace(part)
-	}
-	method := start_string_parts[0]
-	path := start_string_parts[1]
 
-	fmt.Printf("[%d] INFO: Recieved request: %s %s\n", id, method, path)
+	fmt.Printf("INFO: Recieved request: %s %s\n", request.Method, request.Path)
 
-	status, body := serve(method, path)
+	response := route(request)
 
-	response := fmt.Sprintf("HTTP/1.1 %d OK\r\n\r\n%s\r\n", status, body)
-	n, err = conn.Write([]byte(response))
+	http_response := fmt.Sprintf("HTTP/1.1 %d OK\r\n\r\n%s\r\n", response.Status, response.Body)
+	n, err = conn.Write([]byte(http_response))
 	if err != nil {
 		println("ERROR: conn.Write: ", err)
 		return
 	}
 }
 
-func serve(method string, path string) (int, []byte) {
-	if path == "/" {
-		path = "/index.html"
-	}
-	content, err := os.ReadFile(fmt.Sprintf("www%s", path))
-	if err != nil {
-		fmt.Printf("WARN: os.ReadFile: %v\n", err)
-		return 404, []byte("Not found")
+func parse_request(buffer []byte) (*Request, error) {
+	message := string(buffer[:])
+	start_string, rest, found := strings.Cut(message, "\r\n")
+
+	if !found {
+		return nil, fmt.Errorf("Invalid http request")
 	}
 
-	return 200, content
+	start_string_parts := strings.Split(start_string, " ")
+	method := start_string_parts[0]
+	path_with_query_string := start_string_parts[1]
+
+	path, query_string, found_query_params := strings.Cut(path_with_query_string, "?")
+
+	var params = make(map[string]string)
+
+	if found_query_params {
+		for _, query_param := range strings.Split(query_string, "&") {
+			key, value, found := strings.Cut(query_param, "=")
+			if found {
+				params[key] = value
+			}
+		}
+	}
+
+	headers_string, body, _ := strings.Cut(rest, "\r\n\r\n")
+
+	var headers = make(map[string]string)
+	for _, header_string := range strings.Split(headers_string, "\r\n") {
+		key, value, found := strings.Cut(header_string, ": ")
+		if found {
+			headers[key] = value
+		}
+	}
+
+	request := Request{method, path, params, headers, body}
+	return &request, nil
+}
+
+func mount(path string, handler func(*Request) Response) {
+	_, exist := routes[path]
+	if exist {
+		println("WARN: handler for route %s is already defined", path)
+	}
+
+	routes[path] = handler
+}
+
+func route(request *Request) Response {
+	handler, handler_found := routes[request.Path]
+	if handler_found {
+		return handler(request)
+	}
+
+	println("handler not found")
+	fmt.Printf("ROUTES: %v", routes)
+
+	return Response{Status: 404, Body: []byte("Not found")}
 }
 
 func UNUSED(x ...interface{}) {}
